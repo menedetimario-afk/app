@@ -165,7 +165,7 @@ if gestionar_login():
         productos = peticion_api("/listar_productos")
         proveedores = peticion_api("/api/admin/proveedores")
         
-        if productos and proveedores:
+        if productos is not None and proveedores is not None:
             df_prod = pd.DataFrame(productos)
             df_prov = pd.DataFrame(proveedores)
             
@@ -187,15 +187,18 @@ if gestionar_login():
                 st.metric("Inversión Total", f"$ {total_compra:,.2f}")
                 
                 if st.button("Confirmar Ingreso a Almacén", use_container_width=True):
-                    # Enviamos la actualización a la API
+                    # Creamos el diccionario con los nombres exactos que espera el modelo EntradaInventario
+                    datos_entrada = {"codigo": cod_barras, "cantidad": cantidad}
+                    
+                    # Enviamos como JSON (asegúrate de que tu función peticion_api soporte el argumento 'json')
                     res = peticion_api("/api/admin/inventario/registrar-entrada", 
-                                     params={"codigo": cod_barras, "cantidad": cantidad}, 
-                                     metodo="POST")
+                                       json=datos_entrada, 
+                                       metodo="POST")
                     if res:
                         st.success(f"✅ Inventario actualizado: +{cantidad} unidades de {prod_sel}")
                         st.balloons()
-        else:
-            st.warning("No se pudo cargar la lista de productos o proveedores.")
+                    else:
+                        st.warning("No se pudo cargar la lista de productos o proveedores.")
 
 # --- MÓDULO: CORTE DE CAJA (AMBOS) ---
     elif menu == "💰 Corte de Caja":
