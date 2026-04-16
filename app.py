@@ -29,15 +29,20 @@ def peticion_api(endpoint, metodo="GET", params=None, json_data=None):
     try:
         if metodo == "GET":
             r = requests.get(url, headers=HEADERS, params=params, timeout=10)
-        else:
+        elif metodo == "POST":
             r = requests.post(url, headers=HEADERS, json=json_data, timeout=10)
+        elif metodo == "DELETE":
+            r = requests.delete(url, headers=HEADERS, timeout=10)
         
         if r.status_code == 200:
             return r.json()
+        else:
+            st.error(f"Error {r.status_code}: {r.text}")
+            return None
+    except Exception as e:
+        st.error(f"Error de conexión: {e}")
         return None
-    except Exception:
-        return None
-
+        
 # --- 4. SISTEMA DE AUTENTICACIÓN ---
 def gestionar_login():
     if "auth_user" not in st.session_state:
@@ -65,36 +70,71 @@ def gestionar_login():
 # --- 5. MÓDULOS DE LA INTERFAZ ---
 
 def modulo_usuarios():
-    st.title("👥 Administración de Personal")
-    t_lista, t_registro = st.tabs(["📋 Lista de Usuarios", "➕ Registrar Nuevo"])
-
+    st.title("👥 Gestión de Personal")
+    
+    t_registro, t_lista = st.tabs(["🆕 Registrar Usuario", "📋 Lista de Usuarios"])
+    
     with t_registro:
-        with st.form("reg_user"):
-            c1, c2 = st.columns(2)
-            n_nom = c1.text_input("Nombre Completo")
-            n_ema = c2.text_input("Correo Electrónico")
-            n_pas = c1.text_input("Contraseña Temporal", type="password")
-            n_rol = c2.selectbox("Rol de Usuario", ["Vendedor", "Administrador"])
-            if st.form_submit_button("Confirmar Registro"):
-                payload = {"nombre": n_nom.strip(), "correo": n_ema.strip(), "password": n_pas, "rol": n_rol}
-                if peticion_api("/api/usuarios/registrar", json_data=payload, metodo="POST"):
-                    st.success("Usuario dado de alta correctamente.")
-                    st.rerun()
+        st.subheader("Crear nueva cuenta")
+        with st.form("form_registro_usuario", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            nombre = col1.text_input("Nombre Completo")
+            correo = col2.text_input("Correo Electrónico")
+            
+            password = col1.text_input("Contraseña Temporal", type="password")
+            rol = col2.selectbox("Rol del Usuario", ["Empleado", "Administrador"])
+            
+            submit = st.form_submit_button("🚀 Crear Usuario", use_container_width=True)
+            
+            if submit:
+                if nombre and correo and password:
+                    payload = {
+                        "nombre": nombre,
+                        "correo": correo,
+                        "password": password,
+                        "rol": rol
+                    }
+                    # Llamada a la API
+                    res = peticion_api("/api/usuarios/registrar", metodo="POST", json_data=payload)
+                    
+                    if res:
+                        st.success(f"✅ ¡Éxito! El usuario **{nombre}** ha sido registrado como **{rol}**.")
+                        # No hacemos rerun inmediato para que el usuario alcance a leer el mensaje
+                    else:
+                        st.error("❌ No se pudo registrar el usuario. Verifica si el correo ya existe.")
+                else:
+                    st.warning("⚠️ Por favor, rellena todos los campos obligatorios.")
 
     with t_lista:
-        usuarios = peticion_api("/api/usuarios/listar")
-        if usuarios:
-            df_u = pd.DataFrame(usuarios)
-            st.dataframe(df_u[["nombre", "correo", "rol", "estado"]], use_container_width=True, hide_index=True)
-            st.divider()
-            st.subheader("Modificar Estado de Acceso")
-            with st.container(border=True):
-                u_sel = st.selectbox("Usuario:", df_u['correo'])
-                nuevo_estado = st.radio("Nuevo estado:", ["Activo", "Inactivo"], horizontal=True)
-                if st.button("Actualizar Estado"):
-                    peticion_api("/api/usuarios/actualizar-estado", params={"correo": u_sel, "estado": nuevo_estado}, metodo="POST")
-                    st.rerun()
-
+            st.subheader("Usuarios en el sistema")
+            usuarios = peticion_api("/api/usuarios/listar")
+            
+            if usuarios:
+                df_u = pd.DataFrame(usuarios)
+                df_u.columns = ["ID", "Nombre", "Email", "Rol", "Estado"]
+                st.dataframe(df_u, use_container_width=True, hide_index=True)
+                
+                st.divider()
+                st.subheader("🗑️ Zona de Peligro")
+                
+                # Selector para eliminar por ID y Nombre
+                opciones_eliminar = {f"{u['id_usuario']} - {u['nombre']}": u['id_usuario'] for u in usuarios}
+                seleccion = st.selectbox("Selecciona un usuario para eliminar:", opciones_eliminar.keys())
+                
+                # Botón de confirmación
+                if st.button(f"Eliminar a {seleccion}", type="secondary"):
+                    id_a_borrar = opciones_eliminar[seleccion]
+                    
+                    # Llamada a la API usando el método DELETE
+                    # Nota: peticion_api debe soportar DELETE o puedes usar requests directamente
+                    url_delete = f"/api/usuarios/eliminar/{id_a_borrar}"
+                    res = peticion_api(url_delete, metodo="DELETE") # Asegúrate que tu func soporta DELETE
+                    
+                    if res:
+                        st.success(f"💥 Usuario eliminado correctamente.")
+                        st.rerun()
+            else:
+                st.info("No hay usuarios para mostrar.")
 def modulo_dashboard(rol):
     st.title("📊 Panel de Control General")
     res = peticion_api("/api/admin/dashboard/resumen")
