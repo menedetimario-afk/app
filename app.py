@@ -245,64 +245,64 @@ def modulo_reabastecimiento():
         else:
             st.info("No hay productos registrados. Ve a la pestaña 'Crear Producto'.")
 
-    # --- 4. PEDIDOS SUGERIDOS (Análisis de Stock) ---
-with t_sugeridos:
-        st.subheader("📋 Pedidos")
-        
-        datos_sugeridos = peticion_api("/api/admin/inventario/sugeridos-avanzado")
-        
-        if datos_sugeridos:
-            df = pd.DataFrame(datos_sugeridos)
-            
-            # --- SECCIÓN DE BÚSQUEDA Y FILTROS ---
-            with st.expander("🔍 Buscador de Productos (Cualquier nivel de stock)", expanded=True):
-                c1, c2, c3 = st.columns(3)
-                f_prov = c1.selectbox("Filtrar por Proveedor", ["Todos"] + list(df['proveedor'].unique()))
-                f_nom = c2.text_input("Buscar por Nombre")
-                f_cod = c3.text_input("Buscar por Código")
-
-            # Aplicar Filtros
-            df_filtrado = df.copy()
-            if f_prov != "Todos":
-                df_filtrado = df_filtrado[df_filtrado['proveedor'] == f_prov]
-            if f_nom:
-                df_filtrado = df_filtrado[df_filtrado['nombre_producto'].str.contains(f_nom, case=False)]
-            if f_cod:
-                df_filtrado = df_filtrado[df_filtrado['codigo_barras'].str.contains(f_cod)]
-
-            # --- LÓGICA DE SUGERENCIA ---
-            # Sugerimos pedir: lo que se vendió + un extra si está por debajo del mínimo
-            def calcular_pedido(row):
-                ventas = row['ventas_periodo']
-                existencias = row['existencias']
-                minimo = row['stock_minimo']
+            # --- 4. PEDIDOS SUGERIDOS (Análisis de Stock) ---
+        with t_sugeridos:
+                st.subheader("📋 Pedidos")
                 
-                if existencias <= minimo:
-                    return int(ventas + (minimo - existencias))
-                return int(ventas)
-
-            df_filtrado['Sugerencia Pedido'] = df_filtrado.apply(calcular_pedido, axis=1)
-            
-            # Formatear fechas para lectura humana
-            df_filtrado['ultima_entrada'] = pd.to_datetime(df_filtrado['ultima_entrada']).dt.strftime('%d/%m/%Y %H:%M')
-
-            # --- MOSTRAR RESULTADOS ---
-            # Resaltar en rojo los que realmente tienen stock bajo
-            def resaltar_bajo_stock(val):
-                color = 'background-color: #ffcccc' if val <= 5 else '' # Ajusta el umbral aquí
-                return color
-
-            st.write(f"Mostrando {len(df_filtrado)} productos:")
-            st.dataframe(
-                df_filtrado[['nombre_producto', 'proveedor', 'existencias', 'stock_minimo', 'ventas_periodo', 'Sugerencia Pedido', 'ultima_entrada']],
-                use_container_width=True,
-                hide_index=True
-            )
-            
-            if st.button("📊 Generar Reporte Éxito"):
-                st.success("✅ ¡Operación Éxito! Reporte de sugerencias actualizado con ventas recientes.")
-        else:
-            st.info("No hay datos suficientes para calcular sugerencias. Realiza ventas e ingresos de stock primero.")
+                datos_sugeridos = peticion_api("/api/admin/inventario/sugeridos-avanzado")
+                
+                if datos_sugeridos:
+                    df = pd.DataFrame(datos_sugeridos)
+                    
+                    # --- SECCIÓN DE BÚSQUEDA Y FILTROS ---
+                    with st.expander("🔍 Buscador de Productos (Cualquier nivel de stock)", expanded=True):
+                        c1, c2, c3 = st.columns(3)
+                        f_prov = c1.selectbox("Filtrar por Proveedor", ["Todos"] + list(df['proveedor'].unique()))
+                        f_nom = c2.text_input("Buscar por Nombre")
+                        f_cod = c3.text_input("Buscar por Código")
+        
+                    # Aplicar Filtros
+                    df_filtrado = df.copy()
+                    if f_prov != "Todos":
+                        df_filtrado = df_filtrado[df_filtrado['proveedor'] == f_prov]
+                    if f_nom:
+                        df_filtrado = df_filtrado[df_filtrado['nombre_producto'].str.contains(f_nom, case=False)]
+                    if f_cod:
+                        df_filtrado = df_filtrado[df_filtrado['codigo_barras'].str.contains(f_cod)]
+        
+                    # --- LÓGICA DE SUGERENCIA ---
+                    # Sugerimos pedir: lo que se vendió + un extra si está por debajo del mínimo
+                    def calcular_pedido(row):
+                        ventas = row['ventas_periodo']
+                        existencias = row['existencias']
+                        minimo = row['stock_minimo']
+                        
+                        if existencias <= minimo:
+                            return int(ventas + (minimo - existencias))
+                        return int(ventas)
+        
+                    df_filtrado['Sugerencia Pedido'] = df_filtrado.apply(calcular_pedido, axis=1)
+                    
+                    # Formatear fechas para lectura humana
+                    df_filtrado['ultima_entrada'] = pd.to_datetime(df_filtrado['ultima_entrada']).dt.strftime('%d/%m/%Y %H:%M')
+        
+                    # --- MOSTRAR RESULTADOS ---
+                    # Resaltar en rojo los que realmente tienen stock bajo
+                    def resaltar_bajo_stock(val):
+                        color = 'background-color: #ffcccc' if val <= 5 else '' # Ajusta el umbral aquí
+                        return color
+        
+                    st.write(f"Mostrando {len(df_filtrado)} productos:")
+                    st.dataframe(
+                        df_filtrado[['nombre_producto', 'proveedor', 'existencias', 'stock_minimo', 'ventas_periodo', 'Sugerencia Pedido', 'ultima_entrada']],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                    if st.button("📊 Generar Reporte Éxito"):
+                        st.success("✅ ¡Operación Éxito! Reporte de sugerencias actualizado con ventas recientes.")
+                else:
+                    st.info("No hay datos suficientes para calcular sugerencias. Realiza ventas e ingresos de stock primero.")
 
 def modulo_ventas():
     st.title("🛒 Terminal de Ventas")
