@@ -135,7 +135,7 @@ if gestionar_login():
     st.sidebar.markdown(f"Bienvenido, **{user['nombre']}**")
     
     # Opciones por Rol
-    opciones = ["🏠 Dashboard General", "💰 Corte de Caja"]
+    opciones = ["🏠 Dashboard General", "🛒 Ventas", "💰 Corte de Caja"]
     if user['rol'] == "Administrador":
         opciones.insert(1, "📦 Reabastecimiento")
         opciones.append("👥 Usuarios")
@@ -153,32 +153,180 @@ if gestionar_login():
     elif menu == "👥 Usuarios":
         modulo_usuarios()
 
-    elif menu == "📦 Reabastecimiento":
-        st.title("🚚 Gestión de Suministros")
+elif menu == "📦 Reabastecimiento":
+    st.title("🚚 Gestión de Suministros y Proveedores")
+    
+    # Creamos pestañas para organizar las opciones que pediste
+    t_entrada, t_sugeridos, t_nuevo_prod, t_nuevo_prov = st.tabs([
+        "📥 Insertar Entrada", 
+        "📋 Pedidos Sugeridos", 
+        "✨ Crear Producto", 
+        "🤝 Crear Proveedor"
+    ])
+
+    # --- 1. INSERTAR ENTRADA (STOCK) ---
+    with t_entrada:
+        st.subheader("Registrar Ingreso de Mercancía")
         productos = peticion_api("/listar_productos")
         proveedores = peticion_api("/api/admin/proveedores")
         
         if productos and proveedores:
-            df_prod = pd.DataFrame(productos)
+            df_p = pd.DataFrame(productos)
             df_prov = pd.DataFrame(proveedores)
             with st.container(border=True):
                 c1, c2 = st.columns(2)
                 with c1:
-                    prov_sel = st.selectbox("Proveedor", df_prov['nombre_empresa'].unique())
-                    prod_sel = st.selectbox("Producto", df_prod['nombre_producto'].unique())
-                    info = df_prod[df_prod['nombre_producto'] == prod_sel].iloc[0]
+                    prov_sel = st.selectbox("Proveedor que entrega", df_prov['nombre_empresa'].unique(), key="re_prov")
+                    prod_sel = st.selectbox("Producto a recibir", df_p['nombre_producto'].unique(), key="re_prod")
+                    info = df_p[df_p['nombre_producto'] == prod_sel].iloc[0]
                 with c2:
-                    cantidad = st.number_input("Cantidad", min_value=1, step=1)
-                    costo_u = st.number_input("Costo Unitario ($)", value=float(info['precio_compra']))
+                    cantidad = st.number_input("Cantidad", min_value=1, step=1, key="re_cant")
+                    costo_u = st.number_input("Costo Unitario ($)", value=float(info['precio_compra']), key="re_costo")
                 
-                if st.button("Confirmar Ingreso", use_container_width=True):
+                if st.button("Confirmar Ingreso de Stock", use_container_width=True):
                     payload = {"codigo": str(info['codigo_barras']), "cantidad": int(cantidad)}
                     if peticion_api("/api/admin/inventario/registrar-entrada", metodo="POST", json_data=payload):
-                        st.success("✅ Stock actualizado")
+                        st.success(f"✅ Se agregaron {cantidad} unidades a {prod_sel}")
                         st.balloons()
         else:
-            st.warning("No hay productos o proveedores registrados.")
+            st.warning("Faltan productos o proveedores para registrar entradas.")
 
+    # --- 2. PEDIDOS SUGERIDOS (STOCK BAJO) ---
+    with t_sugeridos:
+        st.subheader("Productos por debajo del Stock Mínimo")
+        # Usamos el endpoint de dashboard que ya cuenta las alertas
+        resumen = peticion_api("/api/admin/dashboard/resumen")
+        prods_todos = peticion_api("/listar_productos")
+        
+        if prods_todos:
+            df_todos = pd.DataFrame(prods_todos)
+            # Filtramos localmente los que tienen existencias <= stock_minimo (si tienes esa columna)
+            # Si no, mostramos los que tienen menos de 5 unidades como sugerencia
+            bajo_stock = df_todos[df_todos['existencias'] <= 5] 
+            
+            if not bajo_stock.empty:
+                st.warning(f"Hay {len(bajo_stock)} productos que necesitan reabastecimiento urgente.")
+                st.dataframe(bajo_stock[['nombre_producto', 'existencias', 'precio_compra']], use_container_width=True)
+            else:
+                st.success("✅ El inventario está en niveles óptimos.")
+
+    # --- 3. CREAR PRODUCTO NUEVO ---
+    with t_nuevo_prod:
+        st.subheader("Dar de alta nuevo producto")
+        if proveedores:
+            df_prov = pd.DataFrame(proveedores)
+            with st.form("form_nuevo_prod"):
+                f1, f2 = st.columns(2)
+                f_cod = f1.text_input("Código de Barras")
+                f_nom = f2.text_input("Nombre del Producto")
+                f_pre_v = f1.number_input("Precio Venta", min_value=0.0)
+                f_pre_c = f2.number_input("Precio Compra", min_value=0.0)
+                f_stock = f1.number_input("Stock Inicial", min_value=0)
+                f_min = f2.number_input("Stock Mínimo", min_value=1)
+                f_prov_id = st.selectbox("Proveedor", df_prov['nombre_empresa'].unique())
+                
+                id_p = df_prov[df_prov['nombre_empresa'] == f_prov_id]['id_proveedor'].values[0]
+                
+                if st.form_submit_button("Guardar Producto"):
+                    p_load = {
+                        "codigo": f_cod, "nombre": f_nom, "stock": int(f_stock),
+                        "minimo": int(f_min), "id_prov": int(id_p), 
+                        "precio": float(f_pre_v), "precio_c": float(f_pre_c)
+                    }
+                    if peticion_api("/api/admin/inventario/crear-producto", metodo="POST", json_data=p_load):
+                        st.success("Producto creado exitosamente")
+                        st.rerun()
+
+    # --- 4. CREAR PROVEEDOR ---
+    with t_nuevo_prov:
+        st.subheader("Registro de Proveedores")
+        with st.form("form_prov"):
+            pr_nom = st.text_input("Nombre de la Empresa / Proveedor")
+            pr_con = st.text_input("Nombre del Contacto")
+            pr_tel = st.text_input("Teléfono")
+            
+            if st.form_submit_button("Registrar Proveedor"):
+                # Enviamos por parámetros como lo pide tu endpoint
+                if peticion_api("/api/admin/proveedores/crear", metodo="POST", 
+                                params={"nombre": pr_nom, "contacto": pr_con, "tel": pr_tel}):
+                    st.success("Proveedor guardado")
+                    st.rerun()
+
+    def modulo_ventas():
+    st.title("🛒 Terminal de Ventas")
+    
+    # Inicializar el "carrito" en la sesión si no existe
+    if "carrito" not in st.session_state:
+        st.session_state.carrito = []
+
+    t_venta, t_historial = st.tabs(["🆕 Nueva Venta", "📜 Historial Reciente"])
+
+    with t_venta:
+        productos = peticion_api("/listar_productos")
+        if productos:
+            df_p = pd.DataFrame(productos)
+            
+            # --- SELECCIÓN DE PRODUCTOS ---
+            with st.expander("Añadir Productos", expanded=True):
+                c1, c2, c3 = st.columns([2, 1, 1])
+                with c1:
+                    p_nombre = st.selectbox("Seleccione Producto", df_p['nombre_producto'].unique())
+                    info = df_p[df_p['nombre_producto'] == p_nombre].iloc[0]
+                with c2:
+                    cant = st.number_input("Cantidad", min_value=1, value=1)
+                with c3:
+                    st.write("Precio Unit.")
+                    st.subheader(f"${info['precio_compra']}") # Cambia por precio_venta si lo tienes
+
+                if st.button("➕ Agregar al Carrito", use_container_width=True):
+                    item = {
+                        "codigo_barras": info['codigo_barras'],
+                        "nombre": p_nombre,
+                        "cantidad": cant,
+                        "precio": float(info['precio_compra']),
+                        "subtotal": cant * float(info['precio_compra'])
+                    }
+                    st.session_state.carrito.append(item)
+                    st.toast(f"Agregado: {p_nombre}")
+
+            # --- VISUALIZACIÓN DEL CARRITO ---
+            if st.session_state.carrito:
+                st.divider()
+                df_carrito = pd.DataFrame(st.session_state.carrito)
+                st.table(df_carrito[['nombre', 'cantidad', 'precio', 'subtotal']])
+                
+                total_venta = df_carrito['subtotal'].sum()
+                st.subheader(f"Total a Pagar: ${total_venta:,.2f}")
+
+                col_v1, col_v2 = st.columns(2)
+                if col_v1.button("🗑️ Vaciar Carrito", use_container_width=True):
+                    st.session_state.carrito = []
+                    st.rerun()
+
+                if col_v2.button("✅ Confirmar Venta", type="primary", use_container_width=True):
+                    payload = {
+                        "id_venta": 0, # Lo genera el server
+                        "total": total_venta,
+                        "fecha": obtener_ahora_local().strftime("%Y-%m-%d %H:%M:%S"),
+                        "productos": st.session_state.carrito
+                    }
+                    if peticion_api("/api/ventas/registrar", metodo="POST", json_data=payload):
+                        st.success("¡Venta realizada!")
+                        st.session_state.carrito = []
+                        st.balloons()
+                        st.rerun()
+            else:
+                st.info("El carrito está vacío.")
+
+    with t_historial:
+        # Reutilizamos el endpoint de historial de ventas que ya tienes
+        inicio = obtener_ahora_local().strftime("%Y-%m-%d")
+        historial = peticion_api("/api/admin/historial/ventas", params={"inicio": inicio, "fin": inicio})
+        if historial:
+            st.dataframe(pd.DataFrame(historial), use_container_width=True, hide_index=True)
+        else:
+            st.write("No hay ventas registradas hoy.")
+            
     elif menu == "💰 Corte de Caja":
         st.title("💸 Análisis de Ventas")
         fecha_corte = st.date_input("Seleccionar fecha", obtener_ahora_local())
