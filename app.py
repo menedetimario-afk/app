@@ -125,8 +125,14 @@ def modulo_reabastecimiento():
             
             if st.form_submit_button("Registrar Proveedor"):
                 if pr_nom:
-                    res = peticion_api("/api/admin/proveedores/crear", metodo="POST", 
-                                       params={"nombre": pr_nom, "contacto": pr_con, "tel": pr_tel})
+                    # Creamos el diccionario con los datos
+                    datos_proveedor = {
+                        "nombre": pr_nom,
+                        "contacto": pr_con,
+                        "tel": pr_tel
+                    }
+                    # IMPORTANTE: Usamos json_data= en lugar de params=
+                    res = peticion_api("/api/admin/proveedores/crear", metodo="POST", json_data=datos_proveedor)
                     if res:
                         st.success(f"✅ Proveedor '{pr_nom}' guardado correctamente.")
                         st.rerun()
