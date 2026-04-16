@@ -326,16 +326,28 @@ def modulo_ventas():
                         st.session_state.carrito = []
                         st.rerun()
                         
-                    if c_c.button("✅ Cobrar", type="primary", use_container_width=True):
-                        payload = {
-                            "total": total, 
-                            "productos": st.session_state.carrito, 
-                            "fecha": obtener_ahora_local().strftime("%Y-%m-%d %H:%M:%S")
-                        }
-                        if peticion_api("/api/ventas/registrar", metodo="POST", json_data=payload):
-                            st.session_state.carrito = []
-                            st.success("✅ ¡Venta Exitosa!")
-                            st.rerun()
+                        if c_c.button("✅ Cobrar", type="primary", use_container_width=True):
+                            # Ajustamos los productos para que lleven el campo 'total' que pide la API
+                            productos_ajustados = []
+                            for item in st.session_state.carrito:
+                                productos_ajustados.append({
+                                    "codigo_barras": item["codigo_barras"],
+                                    "nombre": item["nombre"],
+                                    "cantidad": item["cantidad"],
+                                    "total": item["subtotal"]  # <--- Renombramos 'subtotal' a 'total' para la API
+                                })
+                        
+                            payload = {
+                                "id_venta": 0,  # <--- Agregamos el ID que pedía el error
+                                "total": total, 
+                                "productos": productos_ajustados, # <--- Enviamos la lista corregida
+                                "fecha": obtener_ahora_local().strftime("%Y-%m-%d %H:%M:%S")
+                            }
+                            
+                            if peticion_api("/api/ventas/registrar", metodo="POST", json_data=payload):
+                                st.session_state.carrito = []
+                                st.success("✅ ¡Operación Éxito! Venta registrada correctamente.")
+                                st.rerun()
             else:
                 st.info("El carrito está vacío. Agrega productos para comenzar.")
 
