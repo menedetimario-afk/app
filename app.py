@@ -109,31 +109,35 @@ def modulo_usuarios():
             if usuarios:
                 df_u = pd.DataFrame(usuarios)
                 df_u.columns = ["ID", "Nombre", "Email", "Rol", "Estado"]
-                
-                # Mostramos la tabla
                 st.dataframe(df_u, use_container_width=True, hide_index=True)
                 
                 st.divider()
-                col_sel, col_act = st.columns([2, 1])
+                st.subheader("⚙️ Gestión de Estado y Cuenta")
                 
-                # Selector de usuario para acciones
-                dict_users = {f"{u['id_usuario']} - {u['nombre']}": u['id_usuario'] for u in usuarios}
-                seleccion = col_sel.selectbox("Seleccionar usuario para gestionar:", dict_users.keys())
+                # Selector de usuario
+                dict_users = {f"{u['id_usuario']} - {u['nombre']} ({u['estado']})": u['id_usuario'] for u in usuarios}
+                seleccion = st.selectbox("Seleccionar usuario:", dict_users.keys())
                 id_sel = dict_users[seleccion]
                 
-                st.write(f"**Acciones para:** {seleccion}")
-                btn_des, btn_eli = st.columns(2)
+                # Botones de Acción
+                col_act, col_des, col_eli = st.columns(3)
+                
+                # BOTÓN ACTIVAR
+                if col_act.button("✅ Activar Usuario", use_container_width=True):
+                    if peticion_api(f"/api/usuarios/activar/{id_sel}", metodo="PUT"):
+                        st.success(f"¡Operación Éxito! El usuario ahora está Activo.")
+                        st.rerun()
                 
                 # BOTÓN DESACTIVAR
-                if btn_des.button("🚫 Desactivar Usuario", use_container_width=True):
+                if col_des.button("🚫 Desactivar Usuario", use_container_width=True):
                     if peticion_api(f"/api/usuarios/desactivar/{id_sel}", metodo="PUT"):
-                        st.success(f"✅ El usuario ha sido marcado como 'Inactivo'.")
+                        st.success(f"¡Operación Éxito! El usuario ha sido Desactivado.")
                         st.rerun()
                 
                 # BOTÓN ELIMINAR
-                if btn_eli.button("🗑️ Eliminar Definitivamente", type="primary", use_container_width=True):
+                if col_eli.button("🗑️ Eliminar", type="primary", use_container_width=True):
                     if peticion_api(f"/api/usuarios/eliminar/{id_sel}", metodo="DELETE"):
-                        st.success(f"💥 Usuario borrado permanentemente con éxito.")
+                        st.success(f"¡Operación Éxito! Usuario borrado permanentemente.")
                         st.rerun()
             else:
                 st.info("No hay usuarios registrados.")
