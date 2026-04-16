@@ -26,7 +26,7 @@ except Exception:
     st.stop()
 
 # --- NÚCLEO DE COMUNICACIÓN CON FASTAPI ---
-# --- FUNCIÓN DE PETICIÓN ACTUALIZADA ---
+
 def peticion_api(endpoint, metodo="GET", params=None, json=None):
     # Combinamos la base con el endpoint (ej: /listar_productos)
     url = f"{API_BASE_URL.rstrip('/')}/{endpoint.lstrip('/')}"
@@ -202,13 +202,12 @@ if gestionar_login():
 # --- MÓDULO: REABASTECIMIENTO (ADMIN) ---
 elif menu == "📦 Reabastecimiento":
     st.title("🚚 Gestión de Suministros")
-    st.markdown("### Registrar Entrada de Mercancía")
     
     productos = peticion_api("/listar_productos")
     proveedores = peticion_api("/api/admin/proveedores")
     
-    # Validamos que la respuesta sea una lista y no un error
-    if isinstance(productos, list) and isinstance(proveedores, list):
+    # Verificación robusta
+    if productos is not None and proveedores is not None:
         if len(productos) > 0 and len(proveedores) > 0:
             df_prod = pd.DataFrame(productos)
             df_prov = pd.DataFrame(proveedores)
@@ -219,34 +218,24 @@ elif menu == "📦 Reabastecimiento":
                     prov_sel = st.selectbox("Seleccionar Proveedor", df_prov['nombre_empresa'].unique())
                     prod_sel = st.selectbox("Producto a recibir", df_prod['nombre_producto'].unique())
                 
-                # Extraemos info del producto seleccionado
+                # Buscamos la fila del producto
                 prod_info = df_prod[df_prod['nombre_producto'] == prod_sel].iloc[0]
-                cod_barras = prod_info['codigo_barras']
                 
                 with c2:
                     cantidad = st.number_input("Cantidad que ingresa", min_value=1, step=1)
-                    # Tomamos el precio de compra actual como sugerencia
-                    costo_u = st.number_input("Costo Unitario ($)", min_value=0.0, value=float(prod_info['precio_compra']))
+                    costo_u = st.number_input("Costo Unitario ($)", value=float(prod_info['precio_compra']))
                 
-                total_compra = cantidad * costo_u
-                st.metric("Inversión Total", f"$ {total_compra:,.2f}")
+                st.metric("Inversión Total", f"$ {cantidad * costo_u:,.2f}")
                 
-                if st.button("Confirmar Ingreso a Almacén", use_container_width=True):
-                    datos_entrada = {"codigo": str(cod_barras), "cantidad": int(cantidad)}
-                    
-                    res = peticion_api("/api/admin/inventario/registrar-entrada", 
-                                       metodo="POST", 
-                                       json=datos_entrada)
-                    
-                    if res:
-                        st.success(f"✅ Stock actualizado: {prod_sel} (+{cantidad})")
+                if st.button("Confirmar Ingreso", use_container_width=True):
+                    payload = {"codigo": str(prod_info['codigo_barras']), "cantidad": int(cantidad)}
+                    if peticion_api("/api/admin/inventario/registrar-entrada", metodo="POST", json=payload):
+                        st.success("✅ Stock actualizado")
                         st.balloons()
-                    else:
-                        st.error("Hubo un problema al actualizar el inventario.")
         else:
-            st.warning("⚠️ No hay productos o proveedores registrados en el sistema.")
+            st.warning("⚠️ Base de datos vacía: Necesitas productos y proveedores.")
     else:
-        st.error("❌ No se pudo conectar con la base de datos. Verifica la API KEY.")
+        st.error("❌ No se recibieron datos de la API. Revisa los logs.")
         
 elif menu == "💰 Corte de Caja":
     st.title("💸 Análisis de Ventas")
