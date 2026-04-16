@@ -161,11 +161,15 @@ def modulo_reabastecimiento():
                 
                 if st.form_submit_button("Guardar Producto"):
                     p_load = {
-                        "codigo": f_cod, "nombre": f_nom, "stock": int(f_stock),
-                        "minimo": int(f_min), "id_prov": int(id_p), 
-                        "precio": float(f_pre_v), "precio_c": float(f_pre_c)
+                        "codigo": str(f_cod),
+                        "nombre": str(f_nom),
+                        "stock": int(f_stock),
+                        "minimo": int(f_min),
+                        "id_prov": int(id_p), 
+                        "precio": float(f_pre_v), 
+                        "precio_c": float(f_pre_c)
                     }
-                    if peticion_api("/api/admin/inventario/crear-producto", metodo="POST", json_data=p_load):
+                    if res = peticion_api("/api/admin/inventario/crear-producto", metodo="POST", json_data=p_load):
                         st.success(f"✅ Producto '{f_nom}' creado con éxito.")
                         st.rerun()
         else:
