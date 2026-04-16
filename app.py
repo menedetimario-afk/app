@@ -222,28 +222,70 @@ def modulo_reabastecimiento():
         else:
             st.info("👋 Para crear un producto, primero registra un proveedor en la pestaña 'Crear Proveedor'.")
 
-    # --- 3. INSERTAR ENTRADA (STOCK) (Depende de que existan productos) ---
+        # --- 3. INSERTAR ENTRADA (STOCK) (Depende de que existan productos) ---
     with t_entrada:
-        st.subheader("Registrar Ingreso de Mercancía")
-        productos = peticion_api("/listar_productos")
-        
-        if productos:
-            df_p = pd.DataFrame(productos)
-            with st.container(border=True):
-                prod_sel = st.selectbox("Producto a recibir", df_p['nombre_producto'].unique(), key="sel_entrada")
-                info = df_p[df_p['nombre_producto'] == prod_sel].iloc[0]
+            st.subheader("📥 Registro de Entrada y Actualización de Precios")
+            
+            # 1. Obtener datos iniciales
+            proveedores = peticion_api("/api/admin/proveedores")
+            todos_productos = peticion_api("/listar_productos")
+            
+            if proveedores and todos_productos:
+                df_prov = pd.DataFrame(proveedores)
+                df_prod = pd.DataFrame(todos_productos)
                 
-                c1, c2 = st.columns(2)
-                cantidad = c1.number_input("Cantidad", min_value=1, step=1)
-                costo_u = c2.metric("Costo Unitario Actual", f"${info['precio_compra']:,.2f}")
+                # Layout de dos columnas
+                col_izq, col_der = st.columns([1, 1.5])
                 
-                if st.button("Confirmar Ingreso de Stock", use_container_width=True):
-                    payload = {"codigo": str(info['codigo_barras']), "cantidad": int(cantidad)}
-                    if peticion_api("/api/admin/inventario/registrar-entrada", metodo="POST", json_data=payload):
-                        st.success(f"✅ Se agregaron {cantidad} unidades a {prod_sel}")
-                        st.rerun()
-        else:
-            st.info("No hay productos registrados. Ve a la pestaña 'Crear Producto'.")
+                with col_izq:
+                    st.write("🔍 **Selección**")
+                    prov_nom = st.selectbox("1. Selecciona Proveedor", [""] + list(df_prov['nombre_empresa'].unique()))
+                    
+                    # Filtrar productos por el proveedor seleccionado
+                    if prov_nom:
+                        id_p_sel = df_prov[df_prov['nombre_empresa'] == prov_nom]['id_proveedor'].values[0]
+                        prods_filtrados = df_prod[df_prod['id_proveedor'] == id_p_sel]
+                        
+                        if not prods_filtrados.empty:
+                            prod_nom = st.radio("2. Selecciona Producto", prods_filtrados['nombre_producto'].unique())
+                        else:
+                            st.warning("Este proveedor no tiene productos asignados.")
+                            prod_nom = None
+                    else:
+                        prod_nom = None
+    
+                with col_der:
+                    if prod_nom:
+                        st.write(f"📝 **Editar Entrada: {prod_nom}**")
+                        info_p = df_prod[df_prod['nombre_producto'] == prod_nom].iloc[0]
+                        
+                        # Formulario de edición
+                        with st.form("form_update_stock", clear_on_submit=True):
+                            st.info(f"Stock actual: {info_p['existencias']} unidades")
+                            
+                            c1, c2 = st.columns(2)
+                            nueva_cant = c1.number_input("Cantidad entrante", min_value=1, step=1)
+                            # Sugerimos el precio de compra actual, pero permitimos editarlo
+                            nuevo_precio_c = c2.number_input("Nuevo Precio Compra ($)", 
+                                                             min_value=0.0, 
+                                                             value=float(info_p['precio_compra']),
+                                                             format="%.2f")
+                            
+                            if st.form_submit_button("💾 Guardar y Actualizar Stock", use_container_width=True):
+                                # Preparamos el envío. Enviamos cantidad y el nuevo precio.
+                                payload = {
+                                    "codigo": str(info_p['codigo_barras']),
+                                    "cantidad": int(nueva_cant),
+                                    "precio_compra": float(nuevo_precio_c)
+                                }
+                                
+                                if peticion_api("/api/admin/inventario/registrar-entrada", metodo="POST", json_data=payload):
+                                    st.success(f"✅ ¡Operación Éxito! Stock y precio de '{prod_nom}' actualizados.")
+                                    # No hacemos rerun inmediato para que el usuario vea el éxito
+                    else:
+                        st.info("👈 Selecciona un proveedor y un producto para editar la entrada.")
+            else:
+                st.warning("Se requieren proveedores y productos registrados para usar este módulo.")
 
             # --- 4. PEDIDOS SUGERIDOS (Análisis de Stock) ---
         with t_sugeridos:
