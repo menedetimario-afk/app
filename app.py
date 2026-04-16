@@ -355,16 +355,6 @@ def modulo_ventas():
             else:
                 st.info("El carrito está vacío.")
 
-    # --- HISTORIAL DE VENTAS ---
-    with t_h:
-        st.subheader("Ventas del día")
-        historial = peticion_api("/api/ventas/historial-hoy")
-        if historial:
-            df_h = pd.DataFrame(historial)
-            st.dataframe(df_h, use_container_width=True, hide_index=True)
-        else:
-            st.info("No hay ventas registradas hoy.")
-
     # --- PESTAÑA HISTORIAL (SE MANTIENE IGUAL) ---
     with t_h:
         st.subheader("Ventas del día")
