@@ -26,21 +26,29 @@ except Exception:
     st.stop()
 
 # --- NÚCLEO DE COMUNICACIÓN CON FASTAPI ---
-def peticion_api(endpoint, metodo="GET", json=None):
-    # Sustituye con tu URL real de Railway
-    url = f"https://tu-app-railway.app{endpoint}" 
-    headers = {"X-API-KEY": st.secrets["API_SECRET_KEY"]}
+# --- FUNCIÓN DE PETICIÓN ACTUALIZADA ---
+def peticion_api(endpoint, metodo="GET", params=None, json=None):
+    # Combinamos la base con el endpoint (ej: /listar_productos)
+    url = f"{API_BASE_URL.rstrip('/')}/{endpoint.lstrip('/')}"
     
     try:
         if metodo == "GET":
-            response = requests.get(url, headers=headers)
+            r = requests.get(url, headers=HEADERS, params=params, timeout=10)
         else:
-            response = requests.post(url, headers=headers, json=json)
+            r = requests.post(url, headers=HEADERS, json=json, timeout=10)
         
-        if response.status_code == 200:
-            return response.json()
+        if r.status_code == 200:
+            return r.json()
+        elif r.status_code == 403:
+            st.error("🚫 Error 403: La API Key no es válida.")
+        elif r.status_code == 404:
+            st.error(f"🔍 Error 404: No se encontró la ruta {endpoint}")
         return None
-    except:
+    except requests.exceptions.ConnectionError:
+        st.error("🌐 Error de conexión: No se pudo contactar al servidor de Railway.")
+        return None
+    except Exception as e:
+        st.error(f"❗ Error inesperado: {e}")
         return None
 
 # --- SISTEMA DE AUTENTICACIÓN ---
