@@ -169,7 +169,7 @@ def modulo_reabastecimiento():
                         "precio": float(f_pre_v), 
                         "precio_c": float(f_pre_c)
                     }
-                    if res = peticion_api("/api/admin/inventario/crear-producto", metodo="POST", json_data=p_load):
+                    if peticion_api("/api/admin/inventario/crear-producto", metodo="POST", json_data=p_load):
                         st.success(f"✅ Producto '{f_nom}' creado con éxito.")
                         st.rerun()
         else:
