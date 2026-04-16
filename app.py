@@ -252,7 +252,8 @@ elif menu == "📦 Reabastecimiento":
                     st.success("Proveedor guardado")
                     st.rerun()
 
-    def modulo_ventas():
+def modulo_ventas():
+    # Esta línea DEBE tener 4 espacios de sangría respecto al 'def'
     st.title("🛒 Terminal de Ventas")
     
     # Inicializar el "carrito" en la sesión si no existe
@@ -271,20 +272,23 @@ elif menu == "📦 Reabastecimiento":
                 c1, c2, c3 = st.columns([2, 1, 1])
                 with c1:
                     p_nombre = st.selectbox("Seleccione Producto", df_p['nombre_producto'].unique())
+                    # Filtrar info del producto seleccionado
                     info = df_p[df_p['nombre_producto'] == p_nombre].iloc[0]
                 with c2:
-                    cant = st.number_input("Cantidad", min_value=1, value=1)
+                    cant = st.number_input("Cantidad", min_value=1, value=1, key="cant_v")
                 with c3:
                     st.write("Precio Unit.")
-                    st.subheader(f"${info['precio_compra']}") # Cambia por precio_venta si lo tienes
+                    # Usamos precio_compra si no tienes precio_venta en tu tabla
+                    precio_u = float(info.get('precio_compra', 0))
+                    st.subheader(f"${precio_u:,.2f}")
 
                 if st.button("➕ Agregar al Carrito", use_container_width=True):
                     item = {
                         "codigo_barras": info['codigo_barras'],
                         "nombre": p_nombre,
                         "cantidad": cant,
-                        "precio": float(info['precio_compra']),
-                        "subtotal": cant * float(info['precio_compra'])
+                        "total": precio_u, # El backend espera 'total' por cada item
+                        "subtotal": cant * precio_u
                     }
                     st.session_state.carrito.append(item)
                     st.toast(f"Agregado: {p_nombre}")
@@ -293,7 +297,7 @@ elif menu == "📦 Reabastecimiento":
             if st.session_state.carrito:
                 st.divider()
                 df_carrito = pd.DataFrame(st.session_state.carrito)
-                st.table(df_carrito[['nombre', 'cantidad', 'precio', 'subtotal']])
+                st.table(df_carrito[['nombre', 'cantidad', 'total', 'subtotal']])
                 
                 total_venta = df_carrito['subtotal'].sum()
                 st.subheader(f"Total a Pagar: ${total_venta:,.2f}")
@@ -305,27 +309,29 @@ elif menu == "📦 Reabastecimiento":
 
                 if col_v2.button("✅ Confirmar Venta", type="primary", use_container_width=True):
                     payload = {
-                        "id_venta": 0, # Lo genera el server
-                        "total": total_venta,
+                        "id_venta": 0, 
+                        "total": float(total_venta),
                         "fecha": obtener_ahora_local().strftime("%Y-%m-%d %H:%M:%S"),
                         "productos": st.session_state.carrito
                     }
+                    # Asegúrate de que el endpoint sea el correcto en tu FastAPI
                     if peticion_api("/api/ventas/registrar", metodo="POST", json_data=payload):
-                        st.success("¡Venta realizada!")
+                        st.success("¡Venta realizada con éxito!")
                         st.session_state.carrito = []
                         st.balloons()
                         st.rerun()
             else:
-                st.info("El carrito está vacío.")
+                st.info("El carrito está vacío. Agrega productos arriba.")
 
     with t_historial:
-        # Reutilizamos el endpoint de historial de ventas que ya tienes
-        inicio = obtener_ahora_local().strftime("%Y-%m-%d")
-        historial = peticion_api("/api/admin/historial/ventas", params={"inicio": inicio, "fin": inicio})
+        st.subheader("Ventas del día de hoy")
+        hoy = obtener_ahora_local().strftime("%Y-%m-%d")
+        # Usamos el endpoint de historial que ya tienes en el backend
+        historial = peticion_api("/api/admin/historial/ventas", params={"inicio": hoy, "fin": hoy})
         if historial:
             st.dataframe(pd.DataFrame(historial), use_container_width=True, hide_index=True)
         else:
-            st.write("No hay ventas registradas hoy.")
+            st.write("No se han registrado ventas hoy.")
             
     elif menu == "💰 Corte de Caja":
         st.title("💸 Análisis de Ventas")
