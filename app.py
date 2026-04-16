@@ -4,6 +4,7 @@ import requests
 import plotly.express as px
 from datetime import datetime
 import pytz
+import plotly.express as px
 
 # 1. CONFIGURACIÓN DE PÁGINA
 st.set_page_config(page_title="Sistema Resiliente - Gestión", layout="wide", page_icon="🛡️")
@@ -25,23 +26,21 @@ except Exception:
     st.stop()
 
 # --- NÚCLEO DE COMUNICACIÓN CON FASTAPI ---
-def peticion_api(endpoint, params=None, json_data=None, metodo="GET"):
-    """Función centralizada para peticiones HTTP."""
+def peticion_api(endpoint, metodo="GET", json=None):
+    # Sustituye con tu URL real de Railway
+    url = f"https://tu-app-railway.app{endpoint}" 
+    headers = {"X-API-KEY": st.secrets["API_SECRET_KEY"]}
+    
     try:
-        url = f"{API_BASE_URL}{endpoint}"
-        if metodo == "POST":
-            response = requests.post(url, headers=HEADERS, params=params, json=json_data, timeout=10)
+        if metodo == "GET":
+            response = requests.get(url, headers=headers)
         else:
-            response = requests.get(url, headers=HEADERS, params=params, timeout=10)
-            
+            response = requests.post(url, headers=headers, json=json)
+        
         if response.status_code == 200:
             return response.json()
-        else:
-            error_msg = response.json().get('detail', 'Error desconocido')
-            st.sidebar.error(f"Error {response.status_code}: {error_msg}")
-            return None
-    except Exception as e:
-        st.sidebar.error(f"Fallo de conexión: {e}")
+        return None
+    except:
         return None
 
 # --- SISTEMA DE AUTENTICACIÓN ---
@@ -118,13 +117,49 @@ def modulo_usuarios():
 
 def modulo_dashboard(user_rol):
     st.title("📊 Panel de Control General")
-    data = peticion_api("/api/admin/dashboard/resumen")
-    if data:
+    
+    # 1. Obtener métricas rápidas
+    data_resumen = peticion_api("/api/admin/dashboard/resumen")
+    
+    if data_resumen:
         m1, m2, m3 = st.columns(3)
-        m1.metric("Ventas Hoy", f"$ {data['ventas_hoy']:,.2f}")
-        m2.metric("Alertas Stock", f"{data['alertas_count']} Prod.")
+        m1.metric("Ventas Hoy", f"$ {data_resumen['ventas_hoy']:,.2f}")
+        m2.metric("Alertas Stock", f"{data_resumen['alertas_count']} Prod.")
         m3.metric("Sesión Actual", user_rol)
-        # Aquí podrías agregar el gráfico de Plotly que tenías originalmente
+        
+        st.divider()
+        
+        # 2. Obtener datos para el gráfico
+        st.subheader("📈 Tendencia de Ventas (Últimos 7 días)")
+        data_grafico = peticion_api("/api/admin/dashboard/grafico-ventas")
+        
+        if data_grafico:
+            df_grafico = pd.DataFrame(data_grafico)
+            
+            # Crear el gráfico con Plotly
+            fig = px.line(
+                df_grafico, 
+                x='fecha', 
+                y='total_dia',
+                labels={'fecha': 'Fecha', 'total_dia': 'Ventas ($)'},
+                markers=True,
+                template="plotly_dark" # Opcional: estilo oscuro
+            )
+            
+            # Personalizar colores del área y la línea
+            fig.update_traces(line_color='#00d1b2', line_width=3, fill='tozeroy')
+            fig.update_layout(
+                hovermode="x unified",
+                xaxis=dict(showgrid=False),
+                yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)')
+            )
+            
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No hay suficientes datos históricos para mostrar el gráfico aún.")
+            
+    else:
+        st.error("No se pudo cargar el resumen del dashboard.")
 
 # --- CONSTRUCCIÓN DE LA APLICACIÓN ---
 
@@ -157,88 +192,91 @@ if gestionar_login():
         modulo_usuarios()
     
 # --- MÓDULO: REABASTECIMIENTO (ADMIN) ---
-    elif menu == "📦 Reabastecimiento":
-        st.title("🚚 Gestión de Suministros")
-        st.markdown("### Registrar Entrada de Mercancía")
-        
-        # Obtenemos productos y proveedores de la API
-        productos = peticion_api("/listar_productos")
-        proveedores = peticion_api("/api/admin/proveedores")
-        
-        if productos is not None and proveedores is not None:
+elif menu == "📦 Reabastecimiento":
+    st.title("🚚 Gestión de Suministros")
+    st.markdown("### Registrar Entrada de Mercancía")
+    
+    productos = peticion_api("/listar_productos")
+    proveedores = peticion_api("/api/admin/proveedores")
+    
+    # Validamos que la respuesta sea una lista y no un error
+    if isinstance(productos, list) and isinstance(proveedores, list):
+        if len(productos) > 0 and len(proveedores) > 0:
             df_prod = pd.DataFrame(productos)
             df_prov = pd.DataFrame(proveedores)
             
             with st.container(border=True):
                 c1, c2 = st.columns(2)
                 with c1:
-                    prov_sel = st.selectbox("Seleccionar Proveedor", df_prov['nombre_empresa'])
-                    prod_sel = st.selectbox("Producto a recibir", df_prod['nombre_producto'])
+                    prov_sel = st.selectbox("Seleccionar Proveedor", df_prov['nombre_empresa'].unique())
+                    prod_sel = st.selectbox("Producto a recibir", df_prod['nombre_producto'].unique())
                 
-                # Extraemos datos del producto seleccionado
+                # Extraemos info del producto seleccionado
                 prod_info = df_prod[df_prod['nombre_producto'] == prod_sel].iloc[0]
                 cod_barras = prod_info['codigo_barras']
                 
                 with c2:
                     cantidad = st.number_input("Cantidad que ingresa", min_value=1, step=1)
-                    costo_u = st.number_input("Costo Unitario de Compra ($)", min_value=0.0, value=float(prod_info['precio_compra']))
+                    # Tomamos el precio de compra actual como sugerencia
+                    costo_u = st.number_input("Costo Unitario ($)", min_value=0.0, value=float(prod_info['precio_compra']))
                 
                 total_compra = cantidad * costo_u
                 st.metric("Inversión Total", f"$ {total_compra:,.2f}")
                 
                 if st.button("Confirmar Ingreso a Almacén", use_container_width=True):
-                    # Creamos el diccionario con los nombres exactos que espera el modelo EntradaInventario
-                    datos_entrada = {"codigo": cod_barras, "cantidad": cantidad}
+                    datos_entrada = {"codigo": str(cod_barras), "cantidad": int(cantidad)}
                     
-                    # Enviamos como JSON (asegúrate de que tu función peticion_api soporte el argumento 'json')
                     res = peticion_api("/api/admin/inventario/registrar-entrada", 
-                                       json=datos_entrada, 
-                                       metodo="POST")
+                                       metodo="POST", 
+                                       json=datos_entrada)
+                    
                     if res:
-                        st.success(f"✅ Inventario actualizado: +{cantidad} unidades de {prod_sel}")
+                        st.success(f"✅ Stock actualizado: {prod_sel} (+{cantidad})")
                         st.balloons()
                     else:
-                        st.warning("No se pudo cargar la lista de productos o proveedores.")
-
-# --- MÓDULO: CORTE DE CAJA (AMBOS) ---
-    elif menu == "💰 Corte de Caja":
-        st.title("💸 Análisis de Ventas")
-        
-        # Selector de fecha para el corte
-        fecha_corte = st.date_input("Seleccionar fecha de consulta", obtener_ahora_local())
-        fecha_str = fecha_corte.strftime("%Y-%m-%d")
-        
-        # Llamada a la API para obtener los datos del reporte
-        data_corte = peticion_api("/api/admin/reporte/corte-detallado", params={"fecha": fecha_str})
-        
-        if data_corte:
-            # Métricas principales en tarjetas
-            m1, m2, m3 = st.columns(3)
-            with m1:
-                st.metric("Ingresos Totales", f"$ {data_corte['ingresos']:,.2f}")
-            with m2:
-                # Solo el admin ve la ganancia neta
-                if user['rol'] == "Administrador":
-                    st.metric("Ganancia Neta", f"$ {data_corte['ganancia']:,.2f}", delta_color="normal")
-                else:
-                    st.metric("Estado", "Corte en Proceso")
-            with m3:
-                num_ventas = len(data_corte['detalles'])
-                st.metric("Tickets Generados", f"{num_ventas} Ventas")
-            
-            st.divider()
-            
-            # Tabla detallada de movimientos
-            if num_ventas > 0:
-                st.subheader("📋 Detalle de Transacciones")
-                df_ventas = pd.DataFrame(data_corte['detalles'])
-                # Renombrar columnas para que se vea profesional
-                df_ventas.columns = ['ID Venta', 'Total ($)', 'Hora de Registro']
-                st.dataframe(df_ventas, use_container_width=True, hide_index=True)
-            else:
-                st.info(f"No se registraron ventas el día {fecha_str}")
+                        st.error("Hubo un problema al actualizar el inventario.")
         else:
-            st.error("No se pudo obtener la información del servidor.")
+            st.warning("⚠️ No hay productos o proveedores registrados en el sistema.")
+    else:
+        st.error("❌ No se pudo conectar con la base de datos. Verifica la API KEY.")
+        
+elif menu == "💰 Corte de Caja":
+    st.title("💸 Análisis de Ventas")
+    
+    fecha_corte = st.date_input("Seleccionar fecha de consulta", obtener_ahora_local())
+    fecha_str = fecha_corte.strftime("%Y-%m-%d")
+    
+    # IMPORTANTE: Asegúrate de pasar 'fecha_str' como un parámetro de consulta (query param)
+    data_corte = peticion_api("/api/admin/reporte/corte-detallado", params={"fecha": fecha_str})
+    
+    if data_corte:
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.metric("Ingresos Totales", f"$ {data_corte['ingresos']:,.2f}")
+        with m2:
+            if st.session_state.rol == "Administrador":
+                st.metric("Ganancia Neta", f"$ {data_corte['ganancia']:,.2f}")
+            else:
+                st.metric("Estado", "Corte en Proceso")
+        with m3:
+            num_ventas = len(data_corte['detalles'])
+            st.metric("Tickets Generados", f"{num_ventas} Ventas")
+        
+        st.divider()
+        
+        if num_ventas > 0:
+            st.subheader("📋 Detalle de Transacciones")
+            df_ventas = pd.DataFrame(data_corte['detalles'])
+            
+            # BLINDAJE: Si por alguna razón el SQL trae más o menos columnas, esto evita el error:
+            if df_ventas.shape[1] == 3:
+                df_ventas.columns = ['ID Venta', 'Total ($)', 'Hora de Registro']
+            
+            st.dataframe(df_ventas, use_container_width=True, hide_index=True)
+        else:
+            st.info(f"No se registraron ventas el día {fecha_str}")
+    else:
+        st.error("🚫 Error 404 o 403: No se pudo obtener la información. Verifica la URL de la API.")
 
     # Pie de página lateral
     st.sidebar.caption(f"🕒 {obtener_ahora_local().strftime('%d/%m/%Y %H:%M')}")
