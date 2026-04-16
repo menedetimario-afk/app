@@ -273,9 +273,10 @@ def modulo_ventas():
                 busqueda = st.text_input("Buscar por Nombre o Código de Barras")
                 
                 if busqueda:
+                    # Filtramos asegurando que las columnas sean tratadas como strings
                     df_filtrado = df_p[
-                        df_p['nombre_producto'].str.contains(busqueda, case=False) | 
-                        df_p['codigo_barras'].str.contains(busqueda)
+                        df_p['nombre_producto'].astype(str).str.contains(busqueda, case=False) | 
+                        df_p['codigo_barras'].astype(str).str.contains(busqueda)
                     ]
                 else:
                     df_filtrado = df_p
@@ -322,34 +323,47 @@ def modulo_ventas():
                     st.write(f"### TOTAL: ${total:,.2f}")
                     
                     c_v, c_c = st.columns(2)
+                    
+                    # BOTÓN VACIAR
                     if c_v.button("🗑️ Vaciar", use_container_width=True):
                         st.session_state.carrito = []
                         st.rerun()
+                    
+                    # BOTÓN COBRAR (Corregida la identación para que esté al mismo nivel que Vaciar)
+                    if c_c.button("✅ Cobrar", type="primary", use_container_width=True):
+                        # Ajustamos los productos para el modelo de la API (evita Error 422)
+                        productos_ajustados = []
+                        for item in st.session_state.carrito:
+                            productos_ajustados.append({
+                                "codigo_barras": str(item["codigo_barras"]),
+                                "nombre": item["nombre"],
+                                "cantidad": item["cantidad"],
+                                "total": float(item["subtotal"]) # Renombrado a 'total' para la API
+                            })
                         
-                        if c_c.button("✅ Cobrar", type="primary", use_container_width=True):
-                            # Ajustamos los productos para que lleven el campo 'total' que pide la API
-                            productos_ajustados = []
-                            for item in st.session_state.carrito:
-                                productos_ajustados.append({
-                                    "codigo_barras": item["codigo_barras"],
-                                    "nombre": item["nombre"],
-                                    "cantidad": item["cantidad"],
-                                    "total": item["subtotal"]  # <--- Renombramos 'subtotal' a 'total' para la API
-                                })
+                        payload = {
+                            "id_venta": 0,
+                            "total": float(total), 
+                            "productos": productos_ajustados,
+                            "fecha": obtener_ahora_local().strftime("%Y-%m-%d %H:%M:%S")
+                        }
                         
-                            payload = {
-                                "id_venta": 0,  # <--- Agregamos el ID que pedía el error
-                                "total": total, 
-                                "productos": productos_ajustados, # <--- Enviamos la lista corregida
-                                "fecha": obtener_ahora_local().strftime("%Y-%m-%d %H:%M:%S")
-                            }
-                            
-                            if peticion_api("/api/ventas/registrar", metodo="POST", json_data=payload):
-                                st.session_state.carrito = []
-                                st.success("✅ ¡Operación Éxito! Venta registrada correctamente.")
-                                st.rerun()
+                        if peticion_api("/api/ventas/registrar", metodo="POST", json_data=payload):
+                            st.session_state.carrito = []
+                            st.success("✅ ¡Venta registrada correctamente!")
+                            st.rerun()
             else:
-                st.info("El carrito está vacío. Agrega productos para comenzar.")
+                st.info("El carrito está vacío.")
+
+    # --- HISTORIAL DE VENTAS ---
+    with t_h:
+        st.subheader("Ventas del día")
+        historial = peticion_api("/api/ventas/historial-hoy")
+        if historial:
+            df_h = pd.DataFrame(historial)
+            st.dataframe(df_h, use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay ventas registradas hoy.")
 
     # --- PESTAÑA HISTORIAL (SE MANTIENE IGUAL) ---
     with t_h:
