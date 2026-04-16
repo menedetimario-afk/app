@@ -240,40 +240,43 @@ elif menu == "📦 Reabastecimiento":
 elif menu == "💰 Corte de Caja":
     st.title("💸 Análisis de Ventas")
     
-    fecha_corte = st.date_input("Seleccionar fecha de consulta", obtener_ahora_local())
+    # Asegúrate de que esta función exista o usa datetime.now()
+    fecha_corte = st.date_input("Seleccionar fecha", datetime.now())
     fecha_str = fecha_corte.strftime("%Y-%m-%d")
     
-    # IMPORTANTE: Asegúrate de pasar 'fecha_str' como un parámetro de consulta (query param)
+    # Llamada a la API
     data_corte = peticion_api("/api/admin/reporte/corte-detallado", params={"fecha": fecha_str})
     
-    if data_corte:
+    if data_corte is not None:
         m1, m2, m3 = st.columns(3)
-        with m1:
-            st.metric("Ingresos Totales", f"$ {data_corte['ingresos']:,.2f}")
+        # Usamos .get() por seguridad
+        m1.metric("Ingresos Totales", f"$ {data_corte.get('ingresos', 0):,.2f}")
+        
         with m2:
-            if st.session_state.rol == "Administrador":
-                st.metric("Ganancia Neta", f"$ {data_corte['ganancia']:,.2f}")
+            # Verifica que 'rol' esté en session_state o donde lo guardes
+            rol_usuario = st.session_state.get('rol', 'Cajero')
+            if rol_usuario == "Administrador":
+                st.metric("Ganancia Neta", f"$ {data_corte.get('ganancia', 0):,.2f}")
             else:
                 st.metric("Estado", "Corte en Proceso")
-        with m3:
-            num_ventas = len(data_corte['detalles'])
-            st.metric("Tickets Generados", f"{num_ventas} Ventas")
+        
+        detalles = data_corte.get('detalles', [])
+        m3.metric("Tickets Generados", f"{len(detalles)} Ventas")
         
         st.divider()
         
-        if num_ventas > 0:
+        if detalles:
             st.subheader("📋 Detalle de Transacciones")
-            df_ventas = pd.DataFrame(data_corte['detalles'])
+            df_ventas = pd.DataFrame(detalles)
             
-            # BLINDAJE: Si por alguna razón el SQL trae más o menos columnas, esto evita el error:
-            if df_ventas.shape[1] == 3:
-                df_ventas.columns = ['ID Venta', 'Total ($)', 'Hora de Registro']
-            
+            # Forzamos los nombres de columnas para que coincidan con el SELECT del backend
+            # id_venta, total, fecha_venta
+            df_ventas.columns = ['ID Venta', 'Total ($)', 'Hora de Registro']
             st.dataframe(df_ventas, use_container_width=True, hide_index=True)
         else:
             st.info(f"No se registraron ventas el día {fecha_str}")
     else:
-        st.error("🚫 Error 404 o 403: No se pudo obtener la información. Verifica la URL de la API.")
+        st.error("🚫 Error de conexión: No se pudo obtener el reporte de Railway.")
 
     # Pie de página lateral
     st.sidebar.caption(f"🕒 {obtener_ahora_local().strftime('%d/%m/%Y %H:%M')}")
