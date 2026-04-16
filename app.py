@@ -208,32 +208,75 @@ def modulo_reabastecimiento():
 
 def modulo_ventas():
     st.title("🛒 Terminal de Ventas")
-    if "carrito" not in st.session_state: st.session_state.carrito = []
+    
+    # 1. Inicializar carrito si no existe
+    if "carrito" not in st.session_state: 
+        st.session_state.carrito = []
+    
+    # 2. Definir pestañas
     t_v, t_h = st.tabs(["🆕 Nueva Venta", "📜 Historial Hoy"])
     
     with t_v:
         prods = peticion_api("/listar_productos")
+        
+        # --- CORRECCIÓN DE INDENTACIÓN ---
         if not prods:
-        st.warning("🛍️ La tienda está vacía. Registra productos en el módulo de Reabastecimiento para comenzar a vender.")
-        return # Salimos de la función si no hay nada
-        if prods:
-            df_p = pd.DataFrame(prods)
+            st.warning("🛍️ La tienda está vacía. Registra productos en el módulo de Reabastecimiento para comenzar a vender.")
+            return  # Detiene la ejecución de esta pestaña si no hay productos
+        
+        # Si hay productos, el código sigue aquí (ya no necesitas "if prods:")
+        df_p = pd.DataFrame(prods)
+        
+        with st.container(border=True):
             p_sel = st.selectbox("Seleccione Producto", df_p['nombre_producto'].unique())
+            # Obtenemos la info del producto seleccionado
             info = df_p[df_p['nombre_producto'] == p_sel].iloc[0]
-            cant = st.number_input("Cantidad", min_value=1, value=1)
-            precio = float(info.get('precio_venta', 0)) # Ajustar a precio_venta si existe
-            st.write(f"Precio: ${precio}")
             
-            if st.button("➕ Agregar"):
-                st.session_state.carrito.append({"codigo_barras": info['codigo_barras'], "nombre": p_sel, "cantidad": cant, "total": precio, "subtotal": cant * precio})
+            col1, col2 = st.columns(2)
+            cant = col1.number_input("Cantidad", min_value=1, value=1)
+            # Buscamos precio_venta, si no existe usamos precio_compra por seguridad
+            precio = float(info.get('precio_venta', info.get('precio_compra', 0)))
+            col2.metric("Precio Unitario", f"${precio:,.2f}")
             
-            if st.session_state.carrito:
-                st.table(pd.DataFrame(st.session_state.carrito)[['nombre', 'cantidad', 'subtotal']])
-                if st.button("✅ Confirmar Venta"):
-                    total = sum(i['subtotal'] for i in st.session_state.carrito)
-                    payload = {"id_venta": 0, "total": total, "productos": st.session_state.carrito, "fecha": obtener_ahora_local().strftime("%Y-%m-%d %H:%M:%S")}
-                    if peticion_api("/api/ventas/registrar", metodo="POST", json_data=payload):
-                        st.session_state.carrito = []; st.success("Venta Exitosa"); st.rerun()
+            if st.button("➕ Agregar al Carrito", use_container_width=True):
+                st.session_state.carrito.append({
+                    "codigo_barras": info['codigo_barras'], 
+                    "nombre": p_sel, 
+                    "cantidad": cant, 
+                    "total": precio, 
+                    "subtotal": cant * precio
+                })
+                st.rerun()
+        
+        # Mostrar carrito si tiene items
+        if st.session_state.carrito:
+            st.write("---")
+            st.subheader("Lista de Compra")
+            st.dataframe(pd.DataFrame(st.session_state.carrito)[['nombre', 'cantidad', 'subtotal']], use_container_width=True)
+            
+            total = sum(i['subtotal'] for i in st.session_state.carrito)
+            
+            c1, c2 = st.columns(2)
+            if c1.button("🗑️ Vaciar Carrito", use_container_width=True):
+                st.session_state.carrito = []
+                st.rerun()
+                
+            if c2.button(f"✅ Confirmar Venta (${total:,.2f})", type="primary", use_container_width=True):
+                payload = {
+                    "id_venta": 0, 
+                    "total": total, 
+                    "productos": st.session_state.carrito, 
+                    "fecha": obtener_ahora_local().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                if peticion_api("/api/ventas/registrar", metodo="POST", json_data=payload):
+                    st.session_state.carrito = []
+                    st.success("¡Venta Exitosa!")
+                    st.rerun()
+
+    with t_h:
+        st.subheader("Ventas realizadas hoy")
+        # Aquí puedes llamar a tu endpoint de historial de ventas si lo tienes
+        st.info("El historial de hoy se mostrará aquí.")
 
 def modulo_corte():
     st.title("💰 Corte de Caja")
