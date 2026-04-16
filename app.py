@@ -105,22 +105,106 @@ def modulo_dashboard(rol):
         m3.metric("Rol", rol)
 
 def modulo_reabastecimiento():
-    st.title("🚚 Gestión de Suministros")
-    t_en, t_su, t_np, t_pv = st.tabs(["📥 Entrada", "📋 Sugeridos", "✨ Nuevo Producto", "🤝 Proveedor"])
+    st.title("🚚 Gestión de Suministros y Proveedores")
     
-    with t_en:
-        prods = peticion_api("/listar_productos")
-        provs = peticion_api("/api/admin/proveedores")
-        if prods and provs:
-            df_p = pd.DataFrame(prods)
-            df_v = pd.DataFrame(provs)
-            p_sel = st.selectbox("Producto", df_p['nombre_producto'].unique())
-            v_sel = st.selectbox("Proveedor", df_v['nombre_empresa'].unique())
-            cant = st.number_input("Cantidad", min_value=1)
-            info = df_p[df_p['nombre_producto'] == p_sel].iloc[0]
-            if st.button("Confirmar Ingreso"):
-                if peticion_api("/api/admin/inventario/registrar-entrada", metodo="POST", json_data={"codigo": str(info['codigo_barras']), "cantidad": int(cant)}):
-                    st.success("Stock actualizado")
+    # Creamos las 4 pestañas solicitadas
+    t_entrada, t_sugeridos, t_nuevo_prod, t_nuevo_prov = st.tabs([
+        "📥 Insertar Entrada", 
+        "📋 Pedidos Sugeridos", 
+        "✨ Crear Producto", 
+        "🤝 Crear Proveedor"
+    ])
+
+    # --- 1. CREAR PROVEEDOR (Siempre disponible) ---
+    with t_nuevo_prov:
+        st.subheader("Registro de Proveedores")
+        with st.form("form_prov_nuevo"):
+            pr_nom = st.text_input("Nombre de la Empresa / Proveedor")
+            pr_con = st.text_input("Nombre del Contacto")
+            pr_tel = st.text_input("Teléfono")
+            
+            if st.form_submit_button("Registrar Proveedor"):
+                if pr_nom:
+                    res = peticion_api("/api/admin/proveedores/crear", metodo="POST", 
+                                       params={"nombre": pr_nom, "contacto": pr_con, "tel": pr_tel})
+                    if res:
+                        st.success(f"✅ Proveedor '{pr_nom}' guardado correctamente.")
+                        st.rerun()
+                else:
+                    st.error("El nombre del proveedor es obligatorio.")
+
+    # --- 2. CREAR PRODUCTO NUEVO (Depende de que exista un proveedor) ---
+    with t_nuevo_prod:
+        st.subheader("Dar de alta nuevo producto")
+        proveedores = peticion_api("/api/admin/proveedores")
+        
+        if proveedores:
+            df_prov = pd.DataFrame(proveedores)
+            with st.form("form_nuevo_prod_si"):
+                f1, f2 = st.columns(2)
+                f_cod = f1.text_input("Código de Barras")
+                f_nom = f2.text_input("Nombre del Producto")
+                f_pre_v = f1.number_input("Precio Venta ($)", min_value=0.0)
+                f_pre_c = f2.number_input("Precio Compra ($)", min_value=0.0)
+                f_stock = f1.number_input("Stock Inicial", min_value=0, value=0)
+                f_min = f2.number_input("Stock Mínimo", min_value=1, value=5)
+                f_prov_id = st.selectbox("Asignar Proveedor", df_prov['nombre_empresa'].unique())
+                
+                # Obtener ID del proveedor seleccionado
+                id_p = df_prov[df_prov['nombre_empresa'] == f_prov_id]['id_proveedor'].values[0]
+                
+                if st.form_submit_button("Guardar Producto"):
+                    p_load = {
+                        "codigo": f_cod, "nombre": f_nom, "stock": int(f_stock),
+                        "minimo": int(f_min), "id_prov": int(id_p), 
+                        "precio": float(f_pre_v), "precio_c": float(f_pre_c)
+                    }
+                    if peticion_api("/api/admin/inventario/crear-producto", metodo="POST", json_data=p_load):
+                        st.success(f"✅ Producto '{f_nom}' creado con éxito.")
+                        st.rerun()
+        else:
+            st.info("👋 Para crear un producto, primero registra un proveedor en la pestaña 'Crear Proveedor'.")
+
+    # --- 3. INSERTAR ENTRADA (STOCK) (Depende de que existan productos) ---
+    with t_entrada:
+        st.subheader("Registrar Ingreso de Mercancía")
+        productos = peticion_api("/listar_productos")
+        
+        if productos:
+            df_p = pd.DataFrame(productos)
+            with st.container(border=True):
+                prod_sel = st.selectbox("Producto a recibir", df_p['nombre_producto'].unique(), key="sel_entrada")
+                info = df_p[df_p['nombre_producto'] == prod_sel].iloc[0]
+                
+                c1, c2 = st.columns(2)
+                cantidad = c1.number_input("Cantidad", min_value=1, step=1)
+                costo_u = c2.metric("Costo Unitario Actual", f"${info['precio_compra']:,.2f}")
+                
+                if st.button("Confirmar Ingreso de Stock", use_container_width=True):
+                    payload = {"codigo": str(info['codigo_barras']), "cantidad": int(cantidad)}
+                    if peticion_api("/api/admin/inventario/registrar-entrada", metodo="POST", json_data=payload):
+                        st.success(f"✅ Se agregaron {cantidad} unidades a {prod_sel}")
+                        st.rerun()
+        else:
+            st.info("No hay productos registrados. Ve a la pestaña 'Crear Producto'.")
+
+    # --- 4. PEDIDOS SUGERIDOS (Análisis de Stock) ---
+    with t_sugeridos:
+        st.subheader("Análisis de Reposición")
+        prods_todos = peticion_api("/listar_productos")
+        
+        if prods_todos:
+            df_todos = pd.DataFrame(prods_todos)
+            # Simulación de stock bajo (puedes ajustar el criterio)
+            bajo_stock = df_todos[df_todos['existencias'] <= 5] 
+            
+            if not bajo_stock.empty:
+                st.warning(f"Se detectaron {len(bajo_stock)} productos con stock bajo.")
+                st.dataframe(bajo_stock[['nombre_producto', 'existencias', 'precio_compra']], use_container_width=True, hide_index=True)
+            else:
+                st.success("✅ Todos los productos tienen stock suficiente.")
+        else:
+            st.info("Sin datos para analizar.")
 
 def modulo_ventas():
     st.title("🛒 Terminal de Ventas")
@@ -129,6 +213,9 @@ def modulo_ventas():
     
     with t_v:
         prods = peticion_api("/listar_productos")
+        if not prods:
+        st.warning("🛍️ La tienda está vacía. Registra productos en el módulo de Reabastecimiento para comenzar a vender.")
+        return # Salimos de la función si no hay nada
         if prods:
             df_p = pd.DataFrame(prods)
             p_sel = st.selectbox("Seleccione Producto", df_p['nombre_producto'].unique())
