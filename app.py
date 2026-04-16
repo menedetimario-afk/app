@@ -76,31 +76,54 @@ def modulo_usuarios():
             n_pas = c1.text_input("Contraseña Temporal", type="password")
             n_rol = c2.selectbox("Rol de Usuario", ["Vendedor", "Administrador"])
             if st.form_submit_button("Confirmar Registro"):
-                payload = {"nombre": n_nom.strip(), "correo": n_ema.strip(), "password": n_pas, "rol": n_rol}
+                payload = {
+                    "nombre": n_nom.strip(), 
+                    "correo": n_ema.strip(), 
+                    "password": n_pas, 
+                    "rol": n_rol
+                }
                 if peticion_api("/api/usuarios/registrar", json_data=payload, metodo="POST"):
-                    st.success("Usuario registrado.")
+                    st.success("Usuario dado de alta correctamente.")
+                    st.rerun()
 
     with t_lista:
         usuarios = peticion_api("/api/usuarios/listar")
         if usuarios:
             df_u = pd.DataFrame(usuarios)
-            st.dataframe(df_u[["nombre", "correo", "rol", "estado"]], use_container_width=True)
-
-def modulo_dashboard(user_rol):
-    st.title("📊 Panel de Control General")
-    resumen = peticion_api("/api/admin/dashboard/resumen")
-    if resumen:
-        m1, m2, m3 = st.columns(3)
-        m1.metric("Ventas Hoy", f"$ {resumen['ventas_hoy']:,.2f}")
-        m2.metric("Alertas Stock", f"{resumen['alertas_count']} Prod.")
-        m3.metric("Sesión Actual", user_rol)
-        
-        st.subheader("📈 Tendencia de Ventas")
-        g_data = peticion_api("/api/admin/dashboard/grafico-ventas")
-        if g_data:
-            df_g = pd.DataFrame(g_data)
-            fig = px.area(df_g, x='fecha', y='total_dia', title="Ventas 7 días")
-            st.plotly_chart(fig, use_container_width=True)
+            # Mostramos la tabla principal
+            st.dataframe(df_u[["nombre", "correo", "rol", "estado"]], use_container_width=True, hide_index=True)
+            
+            st.divider()
+            st.subheader("Modificar Estado de Acceso")
+            
+            # Formulario pequeño para activar/desactivar
+            with st.container(border=True):
+                col_sel, col_est, col_btn = st.columns([2, 1, 1])
+                
+                with col_sel:
+                    u_sel = st.selectbox("Seleccionar usuario por correo:", df_u['correo'])
+                
+                with col_est:
+                    # Buscamos el estado actual para sugerir el cambio
+                    estado_actual = df_u[df_u['correo'] == u_sel]['estado'].values[0]
+                    opciones_estado = ["Activo", "Inactivo"]
+                    # Ponemos primero la opción que NO tiene actualmente
+                    nuevo_estado = st.radio("Nuevo estado:", opciones_estado, horizontal=True)
+                
+                with col_btn:
+                    st.write("") # Espaciador para alinear el botón
+                    st.write("") 
+                    if st.button("Actualizar Estado", use_container_width=True):
+                        # Enviamos por params como lo requiere tu API
+                        res = peticion_api(
+                            "/api/usuarios/actualizar-estado", 
+                            params={"correo": u_sel, "estado": nuevo_estado}, 
+                            metodo="POST"
+                        )
+                        st.success(f"Usuario {u_sel} actualizado a {nuevo_estado}")
+                        st.rerun()
+        else:
+            st.info("No hay usuarios registrados en la base de datos.")
 
 # --- 6. CONSTRUCCIÓN DE LA APP (Lógica Principal) ---
 
