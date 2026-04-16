@@ -250,38 +250,106 @@ def modulo_reabastecimiento():
 
 def modulo_ventas():
     st.title("🛒 Terminal de Ventas")
-    if "carrito" not in st.session_state: st.session_state.carrito = []
+    
+    if "carrito" not in st.session_state: 
+        st.session_state.carrito = []
+    
     t_v, t_h = st.tabs(["🆕 Nueva Venta", "📜 Historial Hoy"])
     
     with t_v:
-        prods = peticion_api("/listar_productos")
-        if not prods:
-            st.warning("No hay productos disponibles.")
-        else:
-            df_p = pd.DataFrame(prods)
-            with st.container(border=True):
-                p_sel = st.selectbox("Producto", df_p['nombre_producto'].unique())
-                info = df_p[df_p['nombre_producto'] == p_sel].iloc[0]
-                c1, c2 = st.columns(2)
-                cant = c1.number_input("Cantidad", min_value=1, value=1)
-                precio = float(info.get('precio_venta', 0))
-                c2.metric("Precio", f"${precio:,.2f}")
+        # --- DISEÑO DE DOS COLUMNAS ---
+        col_busqueda, col_carrito = st.columns([1.2, 1])
+        
+        with col_busqueda:
+            st.subheader("🔍 Selección de Productos")
+            prods = peticion_api("/listar_productos")
+            
+            if not prods:
+                st.warning("No hay productos disponibles.")
+            else:
+                df_p = pd.DataFrame(prods)
                 
-                if st.button("➕ Agregar", use_container_width=True):
-                    st.session_state.carrito.append({"codigo_barras": info['codigo_barras'], "nombre": p_sel, "cantidad": cant, "subtotal": cant * precio})
-                    st.rerun()
+                # Buscador dual (Nombre o Código)
+                busqueda = st.text_input("Buscar por Nombre o Código de Barras")
+                
+                if busqueda:
+                    df_filtrado = df_p[
+                        df_p['nombre_producto'].str.contains(busqueda, case=False) | 
+                        df_p['codigo_barras'].str.contains(busqueda)
+                    ]
+                else:
+                    df_filtrado = df_p
 
-        if st.session_state.carrito:
-            st.divider()
-            st.dataframe(pd.DataFrame(st.session_state.carrito), use_container_width=True)
-            total = sum(i['subtotal'] for i in st.session_state.carrito)
-            if st.button(f"✅ Confirmar Venta (${total:,.2f})", type="primary"):
-                payload = {"id_venta": 0, "total": total, "productos": st.session_state.carrito, "fecha": obtener_ahora_local().strftime("%Y-%m-%d %H:%M:%S")}
-                if peticion_api("/api/ventas/registrar", metodo="POST", json_data=payload):
-                    st.session_state.carrito = []
-                    st.success("✅ ¡Operación Éxito! Venta guardada.")
-                    st.rerun()
+                if not df_filtrado.empty:
+                    # Selector de resultados
+                    opciones = {f"{r['nombre_producto']} | {r['codigo_barras']}": r for _, r in df_filtrado.iterrows()}
+                    seleccion = st.selectbox("Seleccione el resultado:", opciones.keys())
+                    info = opciones[seleccion]
+                    
+                    c1, c2 = st.columns(2)
+                    cant = c1.number_input("Cantidad", min_value=1, value=1)
+                    precio = float(info.get('precio_venta', 0))
+                    c2.metric("Precio Unitario", f"${precio:,.2f}")
+                    
+                    if st.button("➕ Agregar al Carrito", use_container_width=True):
+                        st.session_state.carrito.append({
+                            "codigo_barras": info['codigo_barras'], 
+                            "nombre": info['nombre_producto'], 
+                            "cantidad": cant, 
+                            "subtotal": cant * precio
+                        })
+                        st.rerun()
+                else:
+                    st.error("No se encontraron coincidencias.")
 
+        # --- COLUMNA DERECHA: EL CARRITO ---
+        with col_carrito:
+            st.subheader("🧾 Carrito de Compras")
+            if st.session_state.carrito:
+                df_carrito = pd.DataFrame(st.session_state.carrito)
+                
+                # Mostramos la tabla del carrito
+                st.dataframe(
+                    df_carrito[['nombre', 'cantidad', 'subtotal']], 
+                    use_container_width=True, 
+                    hide_index=True
+                )
+                
+                total = sum(i['subtotal'] for i in st.session_state.carrito)
+                
+                # Resumen de pago
+                with st.container(border=True):
+                    st.write(f"### TOTAL: ${total:,.2f}")
+                    
+                    c_v, c_c = st.columns(2)
+                    if c_v.button("🗑️ Vaciar", use_container_width=True):
+                        st.session_state.carrito = []
+                        st.rerun()
+                        
+                    if c_c.button("✅ Cobrar", type="primary", use_container_width=True):
+                        payload = {
+                            "total": total, 
+                            "productos": st.session_state.carrito, 
+                            "fecha": obtener_ahora_local().strftime("%Y-%m-%d %H:%M:%S")
+                        }
+                        if peticion_api("/api/ventas/registrar", metodo="POST", json_data=payload):
+                            st.session_state.carrito = []
+                            st.success("✅ ¡Venta Exitosa!")
+                            st.rerun()
+            else:
+                st.info("El carrito está vacío. Agrega productos para comenzar.")
+
+    # --- PESTAÑA HISTORIAL (SE MANTIENE IGUAL) ---
+    with t_h:
+        st.subheader("Ventas del día")
+        historial = peticion_api("/api/ventas/historial-hoy")
+        if historial:
+            df_h = pd.DataFrame(historial)
+            df_h.columns = ["ID Venta", "Fecha/Hora", "Total ($)", "Productos Vendidos"]
+            st.dataframe(df_h, use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay ventas registradas hoy.")
+            
 def modulo_corte():
     st.title("💰 Corte de Caja")
     fecha = st.date_input("Fecha", obtener_ahora_local())
