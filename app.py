@@ -27,15 +27,12 @@ except Exception:
 def peticion_api(endpoint, metodo="GET", params=None, json_data=None):
     url = f"{API_BASE_URL}/{endpoint.lstrip('/')}"
     try:
-        if metodo == "GET":
-            r = requests.get(url, headers=HEADERS, params=params, timeout=10)
-        elif metodo == "POST":
-            r = requests.post(url, headers=HEADERS, json=json_data, timeout=10)
-        elif metodo == "DELETE":
-            r = requests.delete(url, headers=HEADERS, timeout=10)
+        if metodo == "GET": r = requests.get(url, headers=HEADERS, params=params, timeout=10)
+        elif metodo == "POST": r = requests.post(url, headers=HEADERS, json=json_data, timeout=10)
+        elif metodo == "PUT": r = requests.put(url, headers=HEADERS, timeout=10) # Añadir esta
+        elif metodo == "DELETE": r = requests.delete(url, headers=HEADERS, timeout=10) # Añadir esta
         
-        if r.status_code == 200:
-            return r.json()
+        if r.status_code == 200: return r.json()
         else:
             st.error(f"Error {r.status_code}: {r.text}")
             return None
@@ -82,7 +79,7 @@ def modulo_usuarios():
             correo = col2.text_input("Correo Electrónico")
             
             password = col1.text_input("Contraseña Temporal", type="password")
-            rol = col2.selectbox("Rol del Usuario", ["Empleado", "Administrador"])
+            rol = col2.selectbox("Rol del Usuario", ["Administrador","Vendedor"])
             
             submit = st.form_submit_button("🚀 Crear Usuario", use_container_width=True)
             
@@ -106,35 +103,41 @@ def modulo_usuarios():
                     st.warning("⚠️ Por favor, rellena todos los campos obligatorios.")
 
     with t_lista:
-            st.subheader("Usuarios en el sistema")
+            st.subheader("📋 Control de Personal")
             usuarios = peticion_api("/api/usuarios/listar")
             
             if usuarios:
                 df_u = pd.DataFrame(usuarios)
                 df_u.columns = ["ID", "Nombre", "Email", "Rol", "Estado"]
+                
+                # Mostramos la tabla
                 st.dataframe(df_u, use_container_width=True, hide_index=True)
                 
                 st.divider()
-                st.subheader("🗑️ Zona de Peligro")
+                col_sel, col_act = st.columns([2, 1])
                 
-                # Selector para eliminar por ID y Nombre
-                opciones_eliminar = {f"{u['id_usuario']} - {u['nombre']}": u['id_usuario'] for u in usuarios}
-                seleccion = st.selectbox("Selecciona un usuario para eliminar:", opciones_eliminar.keys())
+                # Selector de usuario para acciones
+                dict_users = {f"{u['id_usuario']} - {u['nombre']}": u['id_usuario'] for u in usuarios}
+                seleccion = col_sel.selectbox("Seleccionar usuario para gestionar:", dict_users.keys())
+                id_sel = dict_users[seleccion]
                 
-                # Botón de confirmación
-                if st.button(f"Eliminar a {seleccion}", type="secondary"):
-                    id_a_borrar = opciones_eliminar[seleccion]
-                    
-                    # Llamada a la API usando el método DELETE
-                    # Nota: peticion_api debe soportar DELETE o puedes usar requests directamente
-                    url_delete = f"/api/usuarios/eliminar/{id_a_borrar}"
-                    res = peticion_api(url_delete, metodo="DELETE") # Asegúrate que tu func soporta DELETE
-                    
-                    if res:
-                        st.success(f"💥 Usuario eliminado correctamente.")
+                st.write(f"**Acciones para:** {seleccion}")
+                btn_des, btn_eli = st.columns(2)
+                
+                # BOTÓN DESACTIVAR
+                if btn_des.button("🚫 Desactivar Usuario", use_container_width=True):
+                    if peticion_api(f"/api/usuarios/desactivar/{id_sel}", metodo="PUT"):
+                        st.success(f"✅ El usuario ha sido marcado como 'Inactivo'.")
+                        st.rerun()
+                
+                # BOTÓN ELIMINAR
+                if btn_eli.button("🗑️ Eliminar Definitivamente", type="primary", use_container_width=True):
+                    if peticion_api(f"/api/usuarios/eliminar/{id_sel}", metodo="DELETE"):
+                        st.success(f"💥 Usuario borrado permanentemente con éxito.")
                         st.rerun()
             else:
-                st.info("No hay usuarios para mostrar.")
+                st.info("No hay usuarios registrados.")
+                
 def modulo_dashboard(rol):
     st.title("📊 Panel de Control General")
     res = peticion_api("/api/admin/dashboard/resumen")
