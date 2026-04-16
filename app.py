@@ -4,56 +4,42 @@ import requests
 import plotly.express as px
 from datetime import datetime
 import pytz
-import plotly.express as px
 
 # 1. CONFIGURACIÓN DE PÁGINA
-st.set_page_config(page_title="Sistema Resiliente - Gestión", layout="wide", page_icon="🛡️")
+st.set_page_config(page_title="Sistema Inventario", layout="wide", page_icon="🛡️")
 
-# --- CONFIGURACIÓN DE ZONA HORARIA ---
+# --- ZONA HORARIA ---
 ZONA_HORARIA = pytz.timezone('America/Mexico_City')
 
 def obtener_ahora_local():
     return datetime.now(ZONA_HORARIA)
 
-# --- CARGA DE CONFIGURACIÓN ---
-# Se asume que estos datos están en el panel de Secrets de Streamlit
+# --- 2. CONFIGURACIÓN DE API ---
 try:
-    API_BASE_URL = st.secrets["api"]["url"]
+    API_BASE_URL = st.secrets["api"]["url"].rstrip("/")
     API_KEY = st.secrets["api"]["key"]
     HEADERS = {"X-API-KEY": API_KEY}
 except Exception:
-    st.error("⚠️ Configuración incompleta en st.secrets. Verifique la sección [api].")
+    st.error("⚠️ Error en st.secrets: Verifica la sección [api] con 'url' y 'key'.")
     st.stop()
 
-# --- NÚCLEO DE COMUNICACIÓN CON FASTAPI ---
-
-def peticion_api(endpoint, metodo="GET", params=None, json=None):
-    # Combinamos la base con el endpoint (ej: /listar_productos)
-    url = f"{API_BASE_URL.rstrip('/')}/{endpoint.lstrip('/')}"
-    
+# --- 3. FUNCIÓN DE PETICIÓN ---
+def peticion_api(endpoint, metodo="GET", params=None, json_data=None):
+    url = f"{API_BASE_URL}/{endpoint.lstrip('/')}"
     try:
         if metodo == "GET":
             r = requests.get(url, headers=HEADERS, params=params, timeout=10)
         else:
-            r = requests.post(url, headers=HEADERS, json=json, timeout=10)
+            r = requests.post(url, headers=HEADERS, json=json_data, timeout=10)
         
         if r.status_code == 200:
             return r.json()
-        elif r.status_code == 403:
-            st.error("🚫 Error 403: La API Key no es válida.")
-        elif r.status_code == 404:
-            st.error(f"🔍 Error 404: No se encontró la ruta {endpoint}")
         return None
-    except requests.exceptions.ConnectionError:
-        st.error("🌐 Error de conexión: No se pudo contactar al servidor de Railway.")
-        return None
-    except Exception as e:
-        st.error(f"❗ Error inesperado: {e}")
+    except Exception:
         return None
 
-# --- SISTEMA DE AUTENTICACIÓN ---
+# --- 4. SISTEMA DE AUTENTICACIÓN ---
 def gestionar_login():
-    """Maneja el estado de sesión y el formulario de acceso."""
     if "auth_user" not in st.session_state:
         st.session_state["auth_user"] = None
 
@@ -67,25 +53,16 @@ def gestionar_login():
         with st.form("login_form"):
             correo = st.text_input("Correo Electrónico")
             password = st.text_input("Contraseña", type="password")
-            # --- Dentro de gestionar_login() ---
             if st.form_submit_button("Ingresar al Sistema"):
-                # Limpiamos correo y password de espacios en blanco
-                datos_login = {
-                    "correo": correo.strip(), 
-                    "password": password
-                }
-                res = peticion_api("/api/auth/login", json_data=datos_login, metodo="POST")
-                
+                res = peticion_api("/api/auth/login", json_data={"correo": correo.strip(), "password": password}, metodo="POST")
                 if res and res.get("estado") == "Activo":
                     st.session_state["auth_user"] = res
                     st.rerun()
-                elif res and res.get("estado") == "Inactivo":
-                    st.error("🚫 Cuenta desactivada. Contacte soporte.")
                 else:
-                    st.error("Credenciales inválidas.")
+                    st.error("Credenciales inválidas o cuenta inactiva.")
     return False
 
-# --- COMPONENTES DE LA INTERFAZ ---
+# --- 5. MÓDULOS DE LA INTERFAZ ---
 
 def modulo_usuarios():
     st.title("👥 Administración de Personal")
@@ -98,78 +75,34 @@ def modulo_usuarios():
             n_ema = c2.text_input("Correo Electrónico")
             n_pas = c1.text_input("Contraseña Temporal", type="password")
             n_rol = c2.selectbox("Rol de Usuario", ["Vendedor", "Administrador"])
-            
             if st.form_submit_button("Confirmar Registro"):
-                # .strip() elimina espacios accidentales al inicio o final
-                payload = {
-                    "nombre": n_nom.strip(), 
-                    "correo": n_ema.strip(), 
-                    "password": n_pas, # Ya no necesitas [:72]
-                    "rol": n_rol
-                }
+                payload = {"nombre": n_nom.strip(), "correo": n_ema.strip(), "password": n_pas, "rol": n_rol}
                 if peticion_api("/api/usuarios/registrar", json_data=payload, metodo="POST"):
-                    st.success("Usuario dado de alta correctamente.")
+                    st.success("Usuario registrado.")
+
     with t_lista:
         usuarios = peticion_api("/api/usuarios/listar")
         if usuarios:
             df_u = pd.DataFrame(usuarios)
             st.dataframe(df_u[["nombre", "correo", "rol", "estado"]], use_container_width=True)
-            
-            st.divider()
-            st.subheader("Modificar Estado de Acceso")
-            u_sel = st.selectbox("Seleccionar usuario:", df_u['correo'])
-            nuevo_estado = st.radio("Nuevo estado:", ["Activo", "Inactivo"], horizontal=True)
-            if st.button("Actualizar Usuario"):
-                peticion_api("/api/usuarios/actualizar-estado", params={"correo": u_sel, "estado": nuevo_estado}, metodo="POST")
-                st.rerun()
 
 def modulo_dashboard(user_rol):
     st.title("📊 Panel de Control General")
-    
-    # 1. Obtener métricas rápidas
-    data_resumen = peticion_api("/api/admin/dashboard/resumen")
-    
-    if data_resumen:
+    resumen = peticion_api("/api/admin/dashboard/resumen")
+    if resumen:
         m1, m2, m3 = st.columns(3)
-        m1.metric("Ventas Hoy", f"$ {data_resumen['ventas_hoy']:,.2f}")
-        m2.metric("Alertas Stock", f"{data_resumen['alertas_count']} Prod.")
+        m1.metric("Ventas Hoy", f"$ {resumen['ventas_hoy']:,.2f}")
+        m2.metric("Alertas Stock", f"{resumen['alertas_count']} Prod.")
         m3.metric("Sesión Actual", user_rol)
         
-        st.divider()
-        
-        # 2. Obtener datos para el gráfico
-        st.subheader("📈 Tendencia de Ventas (Últimos 7 días)")
-        data_grafico = peticion_api("/api/admin/dashboard/grafico-ventas")
-        
-        if data_grafico:
-            df_grafico = pd.DataFrame(data_grafico)
-            
-            # Crear el gráfico con Plotly
-            fig = px.line(
-                df_grafico, 
-                x='fecha', 
-                y='total_dia',
-                labels={'fecha': 'Fecha', 'total_dia': 'Ventas ($)'},
-                markers=True,
-                template="plotly_dark" # Opcional: estilo oscuro
-            )
-            
-            # Personalizar colores del área y la línea
-            fig.update_traces(line_color='#00d1b2', line_width=3, fill='tozeroy')
-            fig.update_layout(
-                hovermode="x unified",
-                xaxis=dict(showgrid=False),
-                yaxis=dict(showgrid=True, gridcolor='rgba(255,255,255,0.1)')
-            )
-            
+        st.subheader("📈 Tendencia de Ventas")
+        g_data = peticion_api("/api/admin/dashboard/grafico-ventas")
+        if g_data:
+            df_g = pd.DataFrame(g_data)
+            fig = px.area(df_g, x='fecha', y='total_dia', title="Ventas 7 días")
             st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No hay suficientes datos históricos para mostrar el gráfico aún.")
-            
-    else:
-        st.error("No se pudo cargar el resumen del dashboard.")
 
-# --- CONSTRUCCIÓN DE LA APLICACIÓN ---
+# --- 6. CONSTRUCCIÓN DE LA APP (Lógica Principal) ---
 
 if gestionar_login():
     user = st.session_state["auth_user"]
@@ -177,9 +110,8 @@ if gestionar_login():
     # Barra Lateral
     st.sidebar.title("🏪 Menú Principal")
     st.sidebar.markdown(f"Bienvenido, **{user['nombre']}**")
-    st.sidebar.caption(f"Rol: {user['rol']}")
     
-    # Lógica de Menú por Roles
+    # Opciones por Rol
     opciones = ["🏠 Dashboard General", "💰 Corte de Caja"]
     if user['rol'] == "Administrador":
         opciones.insert(1, "📦 Reabastecimiento")
@@ -187,100 +119,73 @@ if gestionar_login():
     
     menu = st.sidebar.radio("Navegar a:", opciones)
     
-    st.sidebar.divider()
-    if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
+    if st.sidebar.button("🚪 Cerrar Sesión"):
         st.session_state["auth_user"] = None
         st.rerun()
 
-    # Despliegue de Módulos
+    # --- DESPLIEGUE DE MÓDULOS (Todo dentro del bloque IF AUTH) ---
     if menu == "🏠 Dashboard General":
         modulo_dashboard(user['rol'])
     
     elif menu == "👥 Usuarios":
         modulo_usuarios()
-    
-# --- MÓDULO: REABASTECIMIENTO (ADMIN) ---
-elif menu == "📦 Reabastecimiento":
-    st.title("🚚 Gestión de Suministros")
-    
-    productos = peticion_api("/listar_productos")
-    proveedores = peticion_api("/api/admin/proveedores")
-    
-    # Verificación robusta
-    if productos is not None and proveedores is not None:
-        if len(productos) > 0 and len(proveedores) > 0:
+
+    elif menu == "📦 Reabastecimiento":
+        st.title("🚚 Gestión de Suministros")
+        productos = peticion_api("/listar_productos")
+        proveedores = peticion_api("/api/admin/proveedores")
+        
+        if productos and proveedores:
             df_prod = pd.DataFrame(productos)
             df_prov = pd.DataFrame(proveedores)
-            
             with st.container(border=True):
                 c1, c2 = st.columns(2)
                 with c1:
-                    prov_sel = st.selectbox("Seleccionar Proveedor", df_prov['nombre_empresa'].unique())
-                    prod_sel = st.selectbox("Producto a recibir", df_prod['nombre_producto'].unique())
-                
-                # Buscamos la fila del producto
-                prod_info = df_prod[df_prod['nombre_producto'] == prod_sel].iloc[0]
-                
+                    prov_sel = st.selectbox("Proveedor", df_prov['nombre_empresa'].unique())
+                    prod_sel = st.selectbox("Producto", df_prod['nombre_producto'].unique())
+                    info = df_prod[df_prod['nombre_producto'] == prod_sel].iloc[0]
                 with c2:
-                    cantidad = st.number_input("Cantidad que ingresa", min_value=1, step=1)
-                    costo_u = st.number_input("Costo Unitario ($)", value=float(prod_info['precio_compra']))
-                
-                st.metric("Inversión Total", f"$ {cantidad * costo_u:,.2f}")
+                    cantidad = st.number_input("Cantidad", min_value=1, step=1)
+                    costo_u = st.number_input("Costo Unitario ($)", value=float(info['precio_compra']))
                 
                 if st.button("Confirmar Ingreso", use_container_width=True):
-                    payload = {"codigo": str(prod_info['codigo_barras']), "cantidad": int(cantidad)}
-                    if peticion_api("/api/admin/inventario/registrar-entrada", metodo="POST", json=payload):
+                    payload = {"codigo": str(info['codigo_barras']), "cantidad": int(cantidad)}
+                    if peticion_api("/api/admin/inventario/registrar-entrada", metodo="POST", json_data=payload):
                         st.success("✅ Stock actualizado")
                         st.balloons()
         else:
-            st.warning("⚠️ Base de datos vacía: Necesitas productos y proveedores.")
-    else:
-        st.error("❌ No se recibieron datos de la API. Revisa los logs.")
+            st.warning("No hay productos o proveedores registrados.")
+
+    elif menu == "💰 Corte de Caja":
+        st.title("💸 Análisis de Ventas")
+        fecha_corte = st.date_input("Seleccionar fecha", obtener_ahora_local())
+        f_str = fecha_corte.strftime("%Y-%m-%d")
         
-elif menu == "💰 Corte de Caja":
-    st.title("💸 Análisis de Ventas")
-    
-    # Asegúrate de que esta función exista o usa datetime.now()
-    fecha_corte = st.date_input("Seleccionar fecha", datetime.now())
-    fecha_str = fecha_corte.strftime("%Y-%m-%d")
-    
-    # Llamada a la API
-    data_corte = peticion_api("/api/admin/reporte/corte-detallado", params={"fecha": fecha_str})
-    
-    if data_corte is not None:
-        m1, m2, m3 = st.columns(3)
-        # Usamos .get() por seguridad
-        m1.metric("Ingresos Totales", f"$ {data_corte.get('ingresos', 0):,.2f}")
+        data_corte = peticion_api("/api/admin/reporte/corte-detallado", params={"fecha": f_str})
         
-        with m2:
-            # Verifica que 'rol' esté en session_state o donde lo guardes
-            rol_usuario = st.session_state.get('rol', 'Cajero')
-            if rol_usuario == "Administrador":
-                st.metric("Ganancia Neta", f"$ {data_corte.get('ganancia', 0):,.2f}")
-            else:
-                st.metric("Estado", "Corte en Proceso")
-        
-        detalles = data_corte.get('detalles', [])
-        m3.metric("Tickets Generados", f"{len(detalles)} Ventas")
-        
-        st.divider()
-        
-        if detalles:
-            st.subheader("📋 Detalle de Transacciones")
-            df_ventas = pd.DataFrame(detalles)
+        if data_corte:
+            m1, m2, m3 = st.columns(3)
+            m1.metric("Ingresos Totales", f"$ {data_corte.get('ingresos', 0):,.2f}")
+            if user['rol'] == "Administrador":
+                m2.metric("Ganancia Neta", f"$ {data_corte.get('ganancia', 0):,.2f}")
             
-            # Forzamos los nombres de columnas para que coincidan con el SELECT del backend
-            # id_venta, total, fecha_venta
-            df_ventas.columns = ['ID Venta', 'Total ($)', 'Hora de Registro']
-            st.dataframe(df_ventas, use_container_width=True, hide_index=True)
+            detalles = data_corte.get('detalles', [])
+            m3.metric("Tickets", f"{len(detalles)} Ventas")
+            
+            if detalles:
+                st.divider()
+                df_ventas = pd.DataFrame(detalles)
+                if df_ventas.shape[1] >= 3:
+                    df_ventas = df_ventas.iloc[:, :3]
+                    df_ventas.columns = ['ID Venta', 'Total ($)', 'Hora de Registro']
+                st.dataframe(df_ventas, use_container_width=True, hide_index=True)
+            else:
+                st.info("Sin ventas en esta fecha.")
         else:
-            st.info(f"No se registraron ventas el día {fecha_str}")
-    else:
-        st.error("🚫 Error de conexión: No se pudo obtener el reporte de Railway.")
+            st.error("No se pudo conectar con la API.")
 
-    # Pie de página lateral
+    st.sidebar.divider()
     st.sidebar.caption(f"🕒 {obtener_ahora_local().strftime('%d/%m/%Y %H:%M')}")
-
 
 
 
