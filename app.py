@@ -134,7 +134,7 @@ def modulo_ventas():
             p_sel = st.selectbox("Seleccione Producto", df_p['nombre_producto'].unique())
             info = df_p[df_p['nombre_producto'] == p_sel].iloc[0]
             cant = st.number_input("Cantidad", min_value=1, value=1)
-            precio = float(info.get('precio_compra', 0)) # Ajustar a precio_venta si existe
+            precio = float(info.get('precio_venta', 0)) # Ajustar a precio_venta si existe
             st.write(f"Precio: ${precio}")
             
             if st.button("➕ Agregar"):
