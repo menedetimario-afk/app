@@ -166,20 +166,37 @@ if gestionar_login():
     st.sidebar.title("🏪 Menú Principal")
     st.sidebar.write(f"Usuario: {user['nombre']}")
     
+    # Definimos las opciones (ASEGÚRATE DE QUE LOS EMOJIS Y ESPACIOS SEAN IGUALES)
     opciones = ["🏠 Dashboard", "🛒 Ventas", "💰 Corte de Caja"]
-    if user['rol'] == "Administrador":
-        opciones += ["📦 Reabastecimiento", "👥 Usuarios"]
     
+    if user['rol'] == "Administrador":
+        # Insertamos Reabastecimiento en la posición 1 y Usuarios al final
+        opciones.append("📦 Reabastecimiento")
+        opciones.append("👥 Usuarios")
+    
+    # Creamos el menú
     menu = st.sidebar.radio("Navegar a:", opciones)
+    
     if st.sidebar.button("🚪 Cerrar Sesión"):
-        st.session_state.auth_user = None; st.rerun()
+        st.session_state.auth_user = None
+        st.rerun()
 
-    # Despliegue de Módulos
-    if menu == "🏠 Dashboard": modulo_dashboard(user['rol'])
-    elif menu == "🛒 Ventas": modulo_ventas()
-    elif menu == "💰 Corte de Caja": modulo_corte()
-    elif menu == "📦 Reabastecimiento": modulo_reabastecimiento()
-    elif menu == "👥 Usuarios": modulo_usuarios()
+    # --- DESPLIEGUE DE MÓDULOS ---
+    # Usamos "in" o comparaciones exactas para evitar errores de lectura
+    if menu == "🏠 Dashboard":
+        modulo_dashboard(user['rol'])
+        
+    elif menu == "🛒 Ventas":
+        modulo_ventas()
+        
+    elif menu == "💰 Corte de Caja":
+        modulo_corte()
+        
+    elif menu == "📦 Reabastecimiento":
+        modulo_reabastecimiento()
+        
+    elif menu == "👥 Usuarios":
+        modulo_usuarios()
 
     st.sidebar.divider()
     st.sidebar.caption(f"🕒 {obtener_ahora_local().strftime('%d/%m/%Y %H:%M')}")
